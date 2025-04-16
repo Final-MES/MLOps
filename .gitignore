@@ -1,1 +1,85 @@
+
+# Python 환경 및 캐시
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 가상환경
+venv/
+env/
+.env/
+.venv/
+ENV/
+
+# 데이터 파일 (대용량 파일 제외)
 data
+# 모델 및 체크포인트
+models/*
+!models/.gitkeep
+*.h5
+*.pkl
+*.pth
+*.pt
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE 설정
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# 운영체제 관련 파일
+.DS_Store
+Thumbs.db
+
+# 로그 및 출력
+*.log
+logs/
+output/
+
+# 머신러닝 & 데이터 사이언스 관련
+*.csv
+*.xlsx
+*.parquet
+*.sqlite
+
+# 보안 및 민감한 정보
+.env
+*.env
+secrets.json
+config/secrets.yaml
+
+# 빌드 및 배포 관련
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Docker 관련
+.dockerignore
+*.dockerfile
+
+# 테스트 및 커버리지
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# 임시 파일
+*.tmp
+*.bak
+*.swp
+*~
+
+# 외부 라이브러리 (필요한 경우 주석 해제)
+# node_modules/
+
+# 특정 확장자 제외
+# *.png
+# *.jpg
+# *.jpeg
+# *.gif
