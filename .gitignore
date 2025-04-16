@@ -14,6 +14,9 @@ ENV/
 
 # 데이터 파일 (대용량 파일 제외)
 data
+final
+version
+MLOps
 # 모델 및 체크포인트
 models/*
 !models/.gitkeep
