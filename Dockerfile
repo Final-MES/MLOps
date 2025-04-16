@@ -37,5 +37,5 @@ RUN mkdir -p data/raw data/processed data/external \
 # Expose Jupyter Notebook port
 EXPOSE 8888
 
-# Default command to start Jupyter
-CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
+# Use app.py to start Jupyter with synchronization
+CMD ["python", "app.py"]
