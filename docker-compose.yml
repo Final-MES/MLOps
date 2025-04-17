@@ -1,6 +1,52 @@
 version: '3.8'
 
 services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    ports:
+        - "127.0.0.1:5000:5000"
+    volumes:
+        - ./mlflow:/mlflow
+    environment:
+        -  MLFLOW_TRACKING_URI=sqlite:///mlflow/mlflow.db
+    command: mlflow server --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root ./mlflow/artifacts --host 0.0.0.0
+  # 워크플로우 오케스트레이션
+  airflow:
+    image: apache/airflow:latest
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+    command: standalone
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "127.0.0.1:3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+      - MYSQL_DATABASE=mlops
+      - MYSQL_USER=mlops_user
+      - MYSQL_PASSWORD=mlops_password 
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
   jupyter:
     build: 
       context: .
@@ -10,9 +56,13 @@ services:
       - ./data:/app/data
       - ./notebooks:/app/notebooks
     ports:
-      - "8888:8888"
+      - "127.0.0.1:8888:8888"
     environment:
       - JUPYTER_ENABLE_LAB=yes
     working_dir: /app
-    # app.py를 통해 주피터를 실행하도록 변경
     command: python app.py
+
+volumes:
+  mysql_data:
+  prometheus_data:
+  grafana_data:
