@@ -1,0 +1,60 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Alertmanager 설정
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+# 규칙 파일 로드
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# 스크래핑 설정
+scrape_configs:
+  # 서비스 메트릭 수집
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # 모델 서빙 API 메트릭 수집
+  - job_name: "model-serving"
+    metrics_path: /metrics
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["model-serving:8000"]
+        labels:
+          service: "model-serving-api"
+
+  # MySQL 데이터베이스 모니터링
+  - job_name: "mysql"
+    static_configs:
+      - targets: ["mysql-exporter:9104"]
+        labels:
+          service: "mysql-database"
+
+  # 노드 익스포터 - 호스트 시스템 메트릭 수집
+  - job_name: "node"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          instance: "docker-host"
+
+  # Airflow 모니터링
+  - job_name: "airflow"
+    static_configs:
+      - targets: ["airflow-statsd-exporter:9102"]
+        labels:
+          service: "airflow"
+
+  # MLflow 모니터링
+  - job_name: "mlflow"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["mlflow-exporter:9105"]
+        labels:
+          service: "mlflow"

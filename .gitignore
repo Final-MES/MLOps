@@ -27,8 +27,6 @@ models/*
 
 # Jupyter Notebook
 .ipynb_checkpoints/
-*.ipynb
-
 # IDE 설정
 .vscode/
 .idea/
