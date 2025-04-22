@@ -12,6 +12,9 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# pip 업그레이드
+RUN pip install --no-cache-dir --upgrade pip
+
 # Python 패키지 설치 파일 복사 및 설치
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -21,13 +24,13 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     MODEL_DIR=/app/models/trained \
     DATA_DIR=/app/data \
-    LOG_DIR=/app/logs
+    LOG_DIR=/app/logs \
+    PYTHONPATH=/app
 
 # 필요한 디렉토리 생성
 RUN mkdir -p ${MODEL_DIR} ${DATA_DIR}/raw ${DATA_DIR}/processed ${DATA_DIR}/monitoring ${LOG_DIR}
 
 # 소스 코드 복사
-# 참고: Docker Compose에서 볼륨을 마운트하면 이 명령은 무시됩니다.
 COPY . .
 
 # 기본 명령어 - 메인 애플리케이션 실행
