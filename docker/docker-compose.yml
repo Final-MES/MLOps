@@ -1,0 +1,65 @@
+# version 라인 제거 (최신 Docker Compose에서는 불필요)
+
+services:
+  # MLflow 서비스 먼저 정의
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.4.1
+    container_name: mlflow-server
+    ports:
+      - "5001:5000"
+    volumes:
+      - ../data/mlflow:/mlflow
+    command: mlflow server --host 0.0.0.0 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root /mlflow/artifacts
+    networks:
+      - mlops-network
+    restart: unless-stopped
+
+  # 주 애플리케이션 서비스
+  app:
+    build:
+      context: ..  # 프로젝트 루트 디렉토리
+      dockerfile: docker/Dockerfile
+    container_name: smart-factory-app
+    volumes:
+      - ..:/app  # 전체 프로젝트 디렉토리 마운트
+      - models:/app/models
+      - data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MLFLOW_TRACKING_URI=http://localhost:5000
+    ports:
+      - "8000:8000"  # FastAPI 포트
+      - "8001:8001"  # Prometheus 메트릭 포트
+    networks:
+      - mlops-network
+    depends_on:
+      - mlflow  # MLflow 서비스를 먼저 정의
+    restart: unless-stopped
+
+  # MySQL 데이터베이스 서비스
+  mysql:
+    image: mysql:8.0
+    container_name: smart-factory-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mlops
+      MYSQL_USER: mlops_user
+      MYSQL_PASSWORD: mlops_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3305:3306"
+    networks:
+      - mlops-network
+    restart: unless-stopped
+
+# 볼륨 정의
+volumes:
+  models:
+  data:
+  mysql_data:
+
+# 네트워크 정의
+networks:
+  mlops-network:
+    driver: bridge

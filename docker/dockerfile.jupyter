@@ -1,0 +1,52 @@
+FROM python:3.9-slim
+
+# 작업 디렉토리 설정
+WORKDIR /app
+
+# 필요한 시스템 패키지 설치
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    curl \
+    graphviz \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 패키지 설치 파일 복사 및 설치
+COPY requirements.txt .
+
+# Jupyter 관련 패키지 추가 설치
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir \
+    jupyterlab \
+    ipywidgets \
+    plotly \
+    matplotlib \
+    seaborn \
+    scikit-learn \
+    pandas-profiling \
+    jupyterlab-git
+
+# 환경 변수 설정
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    MODEL_DIR=/app/models/trained \
+    DATA_DIR=/app/data \
+    LOG_DIR=/app/logs
+
+# 필요한 디렉토리 생성
+RUN mkdir -p ${MODEL_DIR} ${DATA_DIR}/raw ${DATA_DIR}/processed ${DATA_DIR}/monitoring ${LOG_DIR} /app/notebooks
+
+# Jupyter 설정 파일 복사
+COPY config/jupyter_config.py /root/.jupyter/jupyter_notebook_config.py
+
+# 소스 코드 복사
+# 참고: Docker Compose에서 볼륨을 마운트하면 이 명령은 무시됩니다.
+COPY . .
+
+# 8888 포트 노출
+EXPOSE 8888
+
+# Jupyter Lab 실행
+CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
