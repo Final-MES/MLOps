@@ -8,6 +8,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
     git \
+    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -18,14 +19,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 환경 변수 설정
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    MODEL_DIR=/app/models \
+    MODEL_DIR=/app/models/trained \
     DATA_DIR=/app/data \
     LOG_DIR=/app/logs
 
-# 모델, 데이터, 로그 디렉토리 생성
-RUN mkdir -p ${MODEL_DIR} ${DATA_DIR} ${LOG_DIR}
+# 필요한 디렉토리 생성
+RUN mkdir -p ${MODEL_DIR} ${DATA_DIR}/raw ${DATA_DIR}/processed ${DATA_DIR}/monitoring ${LOG_DIR}
 
-# 애플리케이션 코드 복사는 볼륨 마운트를 통해 수행됨
+# 소스 코드 복사
+# 참고: Docker Compose에서 볼륨을 마운트하면 이 명령은 무시됩니다.
+COPY . .
 
-# 기본 명령어
+# 기본 명령어 - 메인 애플리케이션 실행
 CMD ["python", "-m", "src.app"]

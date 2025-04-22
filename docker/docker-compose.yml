@@ -1,0 +1,156 @@
+version: '3.8'
+
+services:
+  # 주 애플리케이션 서비스
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: smart-factory-app
+    volumes:
+      - ..:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    ports:
+      - "8000:8000"  # FastAPI 서빙 포트
+      - "8001:8001"  # Prometheus 메트릭용 포트
+    networks:
+      - mlops-network
+    depends_on:
+      - mlflow
+    restart: unless-stopped
+    
+  # Jupyter Lab 서비스
+  jupyter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jupyter
+    container_name: smart-factory-jupyter
+    volumes:
+      - ..:/app
+    ports:
+      - "8888:8888"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    networks:
+      - mlops-network
+    depends_on:
+      - mlflow
+    restart: unless-stopped
+
+  # LSTM 모델 학습 서비스 (필요할 때만 사용)
+  lstm-training:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: lstm-training
+    volumes:
+      - ..:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TRAIN_MODE=True
+      - EPOCHS=100
+      - LEARNING_RATE=0.001
+      - BATCH_SIZE=32
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    command: python -m src.models.train
+    networks:
+      - mlops-network
+    depends_on:
+      - mlflow
+    restart: "no"  # 작업 완료 후 재시작하지 않음
+    
+  # MLflow 추적 서버
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.4.1
+    container_name: mlflow-server
+    ports:
+      - "5000:5000"
+    volumes:
+      - ../data/mlflow:/mlflow
+    command: mlflow server --host 0.0.0.0 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root /mlflow/artifacts
+    networks:
+      - mlops-network
+    restart: unless-stopped
+  
+  # 모니터링 (Prometheus)
+  prometheus:
+    image: prom/prometheus:v2.44.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    networks:
+      - mlops-network
+    restart: unless-stopped
+
+  # 대시보드 (Grafana)
+  grafana:
+    image: grafana/grafana:9.5.2
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - mlops-network
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # Airflow 서비스 (웹서버)
+  airflow-webserver:
+    image: apache/airflow:2.8.1
+    container_name: airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../pipelines/airflow:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    networks:
+      - mlops-network
+    restart: unless-stopped
+
+  # Airflow 스케줄러
+  airflow-scheduler:
+    image: apache/airflow:2.8.1
+    container_name: airflow-scheduler
+    command: scheduler
+    volumes:
+      - ../pipelines/airflow:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    networks:
+      - mlops-network
+    restart: unless-stopped
+    depends_on:
+      - airflow-webserver
+
+networks:
+  mlops-network:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  airflow_logs:
