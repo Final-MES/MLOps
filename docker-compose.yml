@@ -1,75 +1,104 @@
 version: '3.8'
 
 services:
-  mlflow:
-    image: ghcr.io/mlflow/mlflow:latest
-    ports:
-        - "127.0.0.1:5000:5000"
+  # LSTM 모델 학습 서비스
+  lstm-training:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lstm-training
     volumes:
-        - ./mlflow:/mlflow
+      - ./:/app
     environment:
-        -  MLFLOW_TRACKING_URI=sqlite:///mlflow/mlflow.db
-    command: mlflow server --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root ./mlflow/artifacts --host 0.0.0.0
-  # 워크플로우 오케스트레이션
-  airflow:
-    image: apache/airflow:latest
+      - PYTHONUNBUFFERED=1
+      - TRAIN_MODE=True
+      - EPOCHS=100
+      - LEARNING_RATE=0.001
+      - BATCH_SIZE=32
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    command: python -m src.models.train
+    networks:
+      - mlops-network
+    depends_on:
+      - mlflow
+    restart: "no"  # 작업 완료 후 재시작하지 않음
+    
+  # 모델 서빙 API
+  model-serving:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: model-serving-api
     ports:
-      - "127.0.0.1:8080:8080"
+      - "8000:8000"
+      - "8001:8001"  # Prometheus 메트릭용 포트
     volumes:
-      - ./dags:/opt/airflow/dags
+      - ./:/app
+    environment:
+      - MODEL_DIR=/app/models
+      - MODEL_NAME=lstm_model
+      - API_PORT=8000
+      - METRICS_PORT=8001
+      - PYTHONUNBUFFERED=1
+    command: python -m src.serving.api
+    networks:
+      - mlops-network
+    depends_on:
+      - mlflow
+    restart: unless-stopped
   
-    environment:
-      - AIRFLOW__WEBSERVER__ADMIN_USER=admin
-      - AIRFLOW__WEBSERVER__ADMIN_PASSWORD=admin
-      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
-    command: >
-      bash -c "
-      airflow db init &&
-      airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com &&
-      airflow webserver & airflow scheduler "
-  mysql:
-    image: mysql:8.0
+  # MLflow 추적 서버
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.4.1
+    container_name: mlflow-server
     ports:
-      - "127.0.0.1:3307:3306"
+      - "5000:5000"
     volumes:
-      - mysql_data:/var/lib/mysql
-    environment:
-      - MYSQL_ROOT_PASSWORD=rootpassword
-      - MYSQL_DATABASE=mlops
-      - MYSQL_USER=mlops_user
-      - MYSQL_PASSWORD=mlops_password 
+      - ./mlflow:/mlflow
+    command: mlflow server --host 0.0.0.0 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root /mlflow/artifacts
+    networks:
+      - mlops-network
+    restart: unless-stopped
+  
+  # 모니터링 (Prometheus)
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.44.0
+    container_name: prometheus
     ports:
-      - "127.0.0.1:9090:9090"
+      - "9090:9090"
     volumes:
       - ./prometheus:/etc/prometheus
       - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/p.txt'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    networks:
+      - mlops-network
+    restart: unless-stopped
+
+  # 대시보드 (Grafana)
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:9.5.2
+    container_name: grafana
     ports:
-      - "127.0.0.1:3000:3000"
+      - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
     environment:
+      - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
-  jupyter:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - .:/app
-      - ./data:/app/data
-      - ./notebooks:/app/notebooks
-    ports:
-      - "127.0.0.1:8888:8888"
-    environment:
-      - JUPYTER_ENABLE_LAB=yes
-    working_dir: /app
-    command: python app.py
+    networks:
+      - mlops-network
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+networks:
+  mlops-network:
+    driver: bridge
 
 volumes:
-  mysql_data:
   prometheus_data:
   grafana_data:

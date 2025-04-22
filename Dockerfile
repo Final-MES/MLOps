@@ -1,41 +1,31 @@
-# Use Python 3.11 slim base image
-FROM python:3.11-slim
+FROM python:3.9-slim
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set working directory
+# 작업 디렉토리 설정
 WORKDIR /app
 
-# Upgrade pip
-RUN pip install --upgrade pip
+# 필요한 시스템 패키지 설치
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first
+# Python 패키지 설치 파일 복사 및 설치
 COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Python dependencies
-RUN pip install -r requirements.txt
+# 환경 변수 설정
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    MODEL_DIR=/app/models \
+    DATA_DIR=/app/data \
+    LOG_DIR=/app/logs
 
-# Copy project files
-COPY . .
+# 모델, 데이터, 로그 디렉토리 생성
+RUN mkdir -p ${MODEL_DIR} ${DATA_DIR} ${LOG_DIR}
 
-# Create project directories
-RUN mkdir -p data/raw data/processed data/external \
-    notebooks \
-    src \
-    models \
-    config
+# 애플리케이션 코드 복사는 볼륨 마운트를 통해 수행됨
 
-# Expose Jupyter Notebook port
-EXPOSE 8888
-
-# Use app.py to start Jupyter with synchronization
-CMD ["python", "app.py"]
+# 기본 명령어
+CMD ["python", "-m", "src.app"]

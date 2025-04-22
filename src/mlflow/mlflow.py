@@ -1,338 +1,604 @@
 import os
 import mlflow
 import mlflow.pytorch
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import numpy as np
 import pandas as pd
+import numpy as np
+import torch
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import train_test_split
+from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
-from torch.utils.data import DataLoader, TensorDataset
+import logging
 
-# 환경 변수 설정
-MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
-EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "smart_factory_lstm")
-DATA_PATH = os.getenv("DATA_PATH", "/app/data/processed_data.csv")
-MODEL_PATH = os.getenv("MODEL_PATH", "/app/models/lstm_model.pth")
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", "32"))
-LEARNING_RATE = float(os.getenv("LEARNING_RATE", "0.001"))
-EPOCHS = int(os.getenv("EPOCHS", "100"))
-SEQUENCE_LENGTH = int(os.getenv("SEQUENCE_LENGTH", "24"))
-HIDDEN_SIZE = int(os.getenv("HIDDEN_SIZE", "64"))
-NUM_LAYERS = int(os.getenv("NUM_LAYERS", "2"))
+from src.models.lstm_model import LSTMModel
 
-# LSTM 모델 클래스 정의
-class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_rate=0.2):
-        super(LSTMModel, self).__init__()
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(os.path.join('logs', 'mlflow.log'))
+    ]
+)
+logger = logging.getLogger(__name__)
+
+class MLflowTracker:
+    """
+    MLflow를 사용하여 모델 학습, 성능 평가, 모델 관리를 수행하는 클래스
+    """
+    
+    def __init__(
+        self, 
+        experiment_name: str = "smart_factory_lstm",
+        tracking_uri: Optional[str] = None,
+        model_registry: Optional[str] = None
+    ):
+        """
+        MLflow 추적기 초기화
         
-        # LSTM 레이어
-        self.lstm = nn.LSTM(
-            input_size=input_size, 
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout_rate if num_layers > 1 else 0
+        Args:
+            experiment_name (str): MLflow 실험 이름
+            tracking_uri (str, optional): MLflow 추적 서버 URI
+            model_registry (str, optional): 모델 레지스트리 URI
+        """
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+        
+        self.tracking_uri = mlflow.get_tracking_uri()
+        self.experiment_name = experiment_name
+        self.model_registry = model_registry
+        
+        # 실험 설정
+        mlflow.set_experiment(experiment_name)
+        self.experiment = mlflow.get_experiment_by_name(experiment_name)
+        
+        if not self.experiment:
+            experiment_id = mlflow.create_experiment(experiment_name)
+            self.experiment = mlflow.get_experiment(experiment_id)
+        
+        logger.info(f"MLflow 추적 서버: {self.tracking_uri}")
+        logger.info(f"실험 이름: {experiment_name}, ID: {self.experiment.experiment_id}")
+    
+    def start_run(self, run_name: Optional[str] = None) -> str:
+        """
+        MLflow 실행 시작
+        
+        Args:
+            run_name (str, optional): 실행 이름
+            
+        Returns:
+            str: 실행 ID
+        """
+        active_run = mlflow.active_run()
+        if active_run:
+            mlflow.end_run()
+        
+        if not run_name:
+            run_name = f"lstm_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        run = mlflow.start_run(experiment_id=self.experiment.experiment_id, run_name=run_name)
+        logger.info(f"MLflow 실행 시작: {run_name} (ID: {run.info.run_id})")
+        
+        return run.info.run_id
+    
+    def log_params(self, params: Dict[str, Any]) -> None:
+        """
+        하이퍼파라미터 로깅
+        
+        Args:
+            params (Dict[str, Any]): 로깅할 파라미터
+        """
+        mlflow.log_params(params)
+    
+    def log_metrics(self, metrics: Dict[str, float], step: Optional[int] = None) -> None:
+        """
+        메트릭 로깅
+        
+        Args:
+            metrics (Dict[str, float]): 로깅할 메트릭
+            step (int, optional): 현재 스텝
+        """
+        mlflow.log_metrics(metrics, step=step)
+    
+    def log_model(
+        self, 
+        model: LSTMModel, 
+        artifact_path: str = "model",
+        registered_model_name: Optional[str] = None
+    ) -> str:
+        """
+        PyTorch 모델 로깅
+        
+        Args:
+            model (LSTMModel): 로깅할 모델
+            artifact_path (str): 아티팩트 경로
+            registered_model_name (str, optional): 등록할 모델 이름
+            
+        Returns:
+            str: 모델 URI
+        """
+        return mlflow.pytorch.log_model(
+            model, 
+            artifact_path=artifact_path,
+            registered_model_name=registered_model_name
+        ).model_uri
+    
+    def log_artifact(self, local_path: str, artifact_path: Optional[str] = None) -> None:
+        """
+        아티팩트 로깅
+        
+        Args:
+            local_path (str): 로컬 파일 경로
+            artifact_path (str, optional): 아티팩트 경로
+        """
+        mlflow.log_artifact(local_path, artifact_path)
+    
+    def log_dict(self, dictionary: Dict[str, Any], artifact_file: str) -> None:
+        """
+        딕셔너리 로깅
+        
+        Args:
+            dictionary (Dict[str, Any]): 로깅할 딕셔너리
+            artifact_file (str): 아티팩트 파일 이름
+        """
+        mlflow.log_dict(dictionary, artifact_file)
+    
+    def log_figure(self, figure: plt.Figure, artifact_file: str) -> None:
+        """
+        Matplotlib 그림 로깅
+        
+        Args:
+            figure (plt.Figure): 로깅할 그림
+            artifact_file (str): 아티팩트 파일 이름
+        """
+        mlflow.log_figure(figure, artifact_file)
+    
+    def end_run(self) -> None:
+        """MLflow 실행 종료"""
+        mlflow.end_run()
+        logger.info("MLflow 실행 종료")
+    
+    def get_best_run(
+        self, 
+        metric_name: str = "val_loss", 
+        ascending: bool = True
+    ) -> Tuple[str, Dict[str, Any]]:
+        """
+        최고 성능의 실행 검색
+        
+        Args:
+            metric_name (str): 기준 메트릭 이름
+            ascending (bool): 오름차순 정렬 여부 (True이면 낮은 값이 더 좋음)
+            
+        Returns:
+            Tuple[str, Dict[str, Any]]: (실행 ID, 실행 데이터)
+        """
+        order = "ASC" if ascending else "DESC"
+        runs = mlflow.search_runs(
+            experiment_ids=[self.experiment.experiment_id],
+            order_by=[f"metrics.{metric_name} {order}"]
         )
         
-        # 완전 연결 레이어
-        self.fc = nn.Linear(hidden_size, output_size)
+        if len(runs) == 0:
+            logger.warning(f"메트릭 '{metric_name}'을 가진 실행을 찾을 수 없습니다.")
+            return None, {}
         
-    def forward(self, x):
-        # LSTM 출력 (batch_size, seq_length, hidden_size)
-        lstm_out, _ = self.lstm(x)
+        best_run = runs.iloc[0]
+        best_run_id = best_run["run_id"]
         
-        # 마지막 시퀀스의 출력만 사용
-        out = self.fc(lstm_out[:, -1, :])
-        return out
+        # 전체 실행 데이터 검색
+        client = mlflow.tracking.MlflowClient()
+        run_data = client.get_run(best_run_id)
+        
+        logger.info(f"최고 성능 실행: {best_run_id}, {metric_name}={best_run[f'metrics.{metric_name}']}")
+        
+        return best_run_id, {
+            "run_id": best_run_id,
+            "metrics": {k.split(".")[-1]: v for k, v in best_run.items() if k.startswith("metrics.")},
+            "params": {k.split(".")[-1]: v for k, v in best_run.items() if k.startswith("params.")},
+            "start_time": best_run["start_time"],
+            "status": run_data.info.status
+        }
+    
+    def load_model(
+        self, 
+        run_id: Optional[str] = None,
+        model_uri: Optional[str] = None,
+        model_name: Optional[str] = None,
+        model_version: Optional[str] = None,
+        stage: str = "Production"
+    ) -> LSTMModel:
+        """
+        MLflow에서 모델 로드
+        
+        Args:
+            run_id (str, optional): 실행 ID
+            model_uri (str, optional): 모델 URI
+            model_name (str, optional): 레지스트리 모델 이름
+            model_version (str, optional): 모델 버전
+            stage (str): 모델 스테이지 (Production, Staging, Archived)
+            
+        Returns:
+            LSTMModel: 로드된 모델
+        """
+        if model_uri:
+            model_path = model_uri
+        elif run_id:
+            model_path = f"runs:/{run_id}/model"
+        elif model_name and model_version:
+            model_path = f"models:/{model_name}/{model_version}"
+        elif model_name:
+            model_path = f"models:/{model_name}/{stage}"
+        else:
+            # 최고 성능 모델 로드
+            best_run_id, _ = self.get_best_run()
+            if not best_run_id:
+                raise ValueError("로드할 모델을 찾을 수 없습니다.")
+            model_path = f"runs:/{best_run_id}/model"
+        
+        logger.info(f"모델 로드 중: {model_path}")
+        model = mlflow.pytorch.load_model(model_path)
+        
+        return model
+    
+    def register_model(
+        self,
+        model_uri: str,
+        name: str,
+        description: Optional[str] = None
+    ) -> str:
+        """
+        모델 레지스트리에 모델 등록
+        
+        Args:
+            model_uri (str): 모델 URI
+            name (str): 등록할 모델 이름
+            description (str, optional): 모델 설명
+            
+        Returns:
+            str: 등록된 모델 버전
+        """
+        client = mlflow.tracking.MlflowClient()
+        
+        try:
+            model_details = mlflow.register_model(model_uri=model_uri, name=name)
+            version = model_details.version
+            
+            if description:
+                client.update_registered_model(
+                    name=name,
+                    description=description
+                )
+                
+            logger.info(f"모델 등록 완료: {name}, 버전 {version}")
+            return version
+        except Exception as e:
+            logger.error(f"모델 등록 실패: {str(e)}")
+            raise
+    
+    def set_model_stage(
+        self,
+        name: str,
+        version: str,
+        stage: str,
+        archive_existing_versions: bool = False
+    ) -> None:
+        """
+        모델 스테이지 설정
+        
+        Args:
+            name (str): 모델 이름
+            version (str): 모델 버전
+            stage (str): 설정할 스테이지 (Production, Staging, Archived)
+            archive_existing_versions (bool): 기존 프로덕션 버전을 아카이브할지 여부
+        """
+        client = mlflow.tracking.MlflowClient()
+        
+        if archive_existing_versions and stage == "Production":
+            # 현재 프로덕션 버전 검색
+            prod_versions = [
+                mv for mv in client.search_model_versions(f"name='{name}'")
+                if mv.current_stage == "Production"
+            ]
+            
+            # 기존 프로덕션 버전 아카이브
+            for mv in prod_versions:
+                if mv.version != version:
+                    client.transition_model_version_stage(
+                        name=name,
+                        version=mv.version,
+                        stage="Archived"
+                    )
+                    logger.info(f"기존 프로덕션 버전 {mv.version} 아카이브됨")
+        
+        # 스테이지 전환
+        client.transition_model_version_stage(
+            name=name,
+            version=version,
+            stage=stage
+        )
+        
+        logger.info(f"모델 {name} 버전 {version}의 스테이지가 '{stage}'로 설정됨")
+    
+    def delete_model_version(self, name: str, version: str) -> None:
+        """
+        모델 버전 삭제
+        
+        Args:
+            name (str): 모델 이름
+            version (str): 삭제할 모델 버전
+        """
+        client = mlflow.tracking.MlflowClient()
+        client.delete_model_version(name=name, version=version)
+        logger.info(f"모델 {name} 버전 {version} 삭제됨")
+    
+    def compare_runs(
+        self, 
+        run_ids: List[str], 
+        metric_names: List[str]
+    ) -> pd.DataFrame:
+        """
+        여러 실행을 비교
+        
+        Args:
+            run_ids (List[str]): 비교할 실행 ID 목록
+            metric_names (List[str]): 비교할 메트릭 이름 목록
+            
+        Returns:
+            pd.DataFrame: 비교 결과 데이터프레임
+        """
+        results = []
+        client = mlflow.tracking.MlflowClient()
+        
+        for run_id in run_ids:
+            try:
+                run = client.get_run(run_id)
+                run_data = {
+                    "run_id": run_id,
+                    "start_time": datetime.fromtimestamp(run.info.start_time / 1000.0),
+                    "status": run.info.status
+                }
+                
+                # 파라미터 추가
+                for key, value in run.data.params.items():
+                    run_data[f"param.{key}"] = value
+                
+                # 메트릭 추가
+                for metric_name in metric_names:
+                    if metric_name in run.data.metrics:
+                        run_data[f"metric.{metric_name}"] = run.data.metrics[metric_name]
+                    else:
+                        run_data[f"metric.{metric_name}"] = None
+                
+                results.append(run_data)
+            except Exception as e:
+                logger.warning(f"실행 {run_id} 정보를 가져오는 중 오류 발생: {str(e)}")
+        
+        if not results:
+            logger.warning("비교할 실행이 없습니다.")
+            return pd.DataFrame()
+        
+        return pd.DataFrame(results)
+    
+    def plot_metric_comparison(
+        self, 
+        runs_df: pd.DataFrame, 
+        metric_name: str,
+        figsize: Tuple[int, int] = (12, 6)
+    ) -> plt.Figure:
+        """
+        여러 실행의 메트릭을 비교하는 그래프 생성
+        
+        Args:
+            runs_df (pd.DataFrame): 비교할 실행 데이터프레임
+            metric_name (str): 비교할 메트릭 이름
+            figsize (Tuple[int, int], optional): 그래프 크기
+            
+        Returns:
+            plt.Figure: 생성된 그래프
+        """
+        metric_col = f"metric.{metric_name}"
+        if metric_col not in runs_df.columns:
+            logger.warning(f"메트릭 '{metric_name}'이 데이터프레임에 없습니다.")
+            return None
+        
+        fig, ax = plt.subplots(figsize=figsize)
+        
+        # 날짜 기준으로 정렬
+        runs_df_sorted = runs_df.sort_values("start_time")
+        
+        # 메트릭 값 시각화
+        ax.bar(range(len(runs_df_sorted)), runs_df_sorted[metric_col])
+        ax.set_xticks(range(len(runs_df_sorted)))
+        ax.set_xticklabels([str(idx) for idx in range(len(runs_df_sorted))], rotation=45)
+        
+        # 런 ID를 툴팁으로 표시
+        for i, (_, row) in enumerate(runs_df_sorted.iterrows()):
+            ax.annotate(
+                row["run_id"][:8] + "...",
+                xy=(i, row[metric_col]),
+                xytext=(0, 5),
+                textcoords="offset points",
+                ha="center",
+                fontsize=8
+            )
+        
+        ax.set_title(f"Comparison of {metric_name} across runs")
+        ax.set_ylabel(metric_name)
+        ax.set_xlabel("Run Index")
+        ax.grid(True, linestyle="--", alpha=0.6)
+        
+        plt.tight_layout()
+        return fig
 
-# 결과를 그래프로 시각화하는 함수
-def plot_results(y_test, y_pred, title):
-    plt.figure(figsize=(12, 6))
-    plt.plot(y_test, label='실제값')
-    plt.plot(y_pred, label='예측값')
-    plt.title(title)
-    plt.xlabel('시간')
-    plt.ylabel('값')
-    plt.legend()
-    plt.grid(True)
-    
-    # 임시 파일로 저장
-    temp_path = f"/tmp/{title.replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d%H%M%S')}.png"
-    plt.savefig(temp_path)
-    plt.close()
-    
-    return temp_path
+    def track_training(
+        self,
+        model: LSTMModel,
+        train_history: Dict[str, List[float]],
+        test_metrics: Dict[str, float],
+        params: Dict[str, Any],
+        feature_importance: Optional[Dict[str, float]] = None,
+        model_name: Optional[str] = "smart_factory_lstm_model",
+        description: Optional[str] = None,
+        register: bool = False,
+        plots: bool = True
+    ) -> str:
+        """
+        모델 학습 과정과 결과를 MLflow에 로깅
+        
+        Args:
+            model (LSTMModel): 학습된 모델
+            train_history (Dict[str, List[float]]): 학습 이력
+            test_metrics (Dict[str, float]): 테스트 메트릭
+            params (Dict[str, Any]): 하이퍼파라미터
+            feature_importance (Dict[str, float], optional): 특성 중요도
+            model_name (str, optional): 등록할 모델 이름
+            description (str, optional): 모델 설명
+            register (bool): 모델 레지스트리에 등록 여부
+            plots (bool): 시각화 그래프 생성 여부
+            
+        Returns:
+            str: 실행 ID
+        """
+        # 실행 시작
+        run_id = self.start_run()
+        
+        try:
+            # 하이퍼파라미터 로깅
+            self.log_params(params)
+            
+            # 훈련 이력 로깅
+            for epoch, (train_loss, val_loss) in enumerate(zip(
+                train_history.get('train_loss', []),
+                train_history.get('val_loss', [])
+            )):
+                self.log_metrics({
+                    "train_loss": train_loss,
+                    "val_loss": val_loss
+                }, step=epoch)
+            
+            # 테스트 메트릭 로깅
+            self.log_metrics(test_metrics)
+            
+            # 특성 중요도 로깅 (있는 경우)
+            if feature_importance:
+                self.log_dict(feature_importance, "feature_importance.json")
+                
+                if plots:
+                    # 특성 중요도 시각화
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    features = list(feature_importance.keys())
+                    importances = list(feature_importance.values())
+                    
+                    sorted_idx = np.argsort(importances)
+                    ax.barh([features[i] for i in sorted_idx], [importances[i] for i in sorted_idx])
+                    ax.set_title("Feature Importance")
+                    ax.set_xlabel("Importance")
+                    
+                    self.log_figure(fig, "feature_importance.png")
+                    plt.close(fig)
+            
+            # 손실 그래프 생성
+            if plots and 'train_loss' in train_history and 'val_loss' in train_history:
+                fig, ax = plt.subplots(figsize=(10, 6))
+                epochs = range(1, len(train_history['train_loss']) + 1)
+                ax.plot(epochs, train_history['train_loss'], 'b-', label='Training Loss')
+                ax.plot(epochs, train_history['val_loss'], 'r-', label='Validation Loss')
+                ax.set_title('Training and Validation Loss')
+                ax.set_xlabel('Epochs')
+                ax.set_ylabel('Loss')
+                ax.legend()
+                ax.grid(True)
+                
+                self.log_figure(fig, "loss_curves.png")
+                plt.close(fig)
+            
+            # 모델 로깅
+            model_uri = self.log_model(model, "model")
+            
+            # 모델 레지스트리에 등록
+            if register and model_name:
+                version = self.register_model(
+                    model_uri=model_uri,
+                    name=model_name,
+                    description=description
+                )
+                
+                # 프로덕션으로 설정
+                self.set_model_stage(
+                    name=model_name,
+                    version=version,
+                    stage="Production",
+                    archive_existing_versions=True
+                )
+            
+            return run_id
+        finally:
+            # 실행 종료
+            self.end_run()
+
 
 def main():
-    # MLflow 설정
-    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-    mlflow.set_experiment(EXPERIMENT_NAME)
+    """MLflow 모듈 사용 예시"""
+    from src.models.train import prepare_data, train_lstm_model, evaluate_model
     
-    print(f"MLflow 추적 서버: {MLFLOW_TRACKING_URI}")
-    print(f"실험 이름: {EXPERIMENT_NAME}")
-    
-    # 데이터 로드
-    print(f"데이터 로드 중: {DATA_PATH}")
-    try:
-        df = pd.read_csv(DATA_PATH)
-        print(f"데이터 로드 완료: {df.shape}")
-    except Exception as e:
-        print(f"데이터 로드 오류: {str(e)}")
-        return
-    
-    # 특성 및 타겟 컬럼 분리
-    feature_cols = df.columns[1:-1]  # 첫 번째 열(타임스탬프)과 마지막 열(타겟) 제외
-    target_col = df.columns[-1]
-    
-    print(f"특성 컬럼: {len(feature_cols)} 개")
-    print(f"타겟 컬럼: {target_col}")
-    
-    # 특성과 타겟 분리
-    X = df[feature_cols].values
-    y = df[target_col].values.reshape(-1, 1)
-    
-    # 데이터 정규화
-    X_scaler = MinMaxScaler(feature_range=(-1, 1))
-    y_scaler = MinMaxScaler(feature_range=(-1, 1))
-    
-    X_scaled = X_scaler.fit_transform(X)
-    y_scaled = y_scaler.fit_transform(y)
-    
-    # 시퀀스 데이터 생성
-    X_sequences, y_sequences = [], []
-    for i in range(len(X_scaled) - SEQUENCE_LENGTH):
-        X_sequences.append(X_scaled[i:i + SEQUENCE_LENGTH])
-        y_sequences.append(y_scaled[i + SEQUENCE_LENGTH])
-    
-    X_sequences = np.array(X_sequences, dtype=np.float32)
-    y_sequences = np.array(y_sequences, dtype=np.float32)
-    
-    print(f"시퀀스 데이터 형태: X={X_sequences.shape}, y={y_sequences.shape}")
-    
-    # 학습/검증/테스트 데이터 분할
-    X_train_val, X_test, y_train_val, y_test = train_test_split(
-        X_sequences, y_sequences, test_size=0.2, shuffle=False
-    )
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_train_val, y_train_val, test_size=0.2, shuffle=False
+    # 데이터 준비
+    data_path = "data/processed/sensor_data.csv"
+    train_loader, val_loader, test_loader, data_info = prepare_data(
+        data_path=data_path,
+        sequence_length=24
     )
     
-    print(f"학습 데이터: {X_train.shape}")
-    print(f"검증 데이터: {X_val.shape}")
-    print(f"테스트 데이터: {X_test.shape}")
+    # 모델 학습
+    model, history = train_lstm_model(
+        train_loader=train_loader,
+        val_loader=val_loader,
+        data_info=data_info,
+        hidden_size=64,
+        num_layers=2,
+        learning_rate=0.001,
+        epochs=10,  # 예시용으로 에폭 수 감소
+        patience=3,
+        model_dir="models",
+        model_name="lstm_model"
+    )
     
-    # PyTorch 텐서로 변환
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"사용 장치: {device}")
+    # 모델 평가
+    metrics = evaluate_model(
+        model=model,
+        test_loader=test_loader,
+        data_info=data_info,
+        plot=False
+    )
     
-    X_train_tensor = torch.tensor(X_train, dtype=torch.float32).to(device)
-    y_train_tensor = torch.tensor(y_train, dtype=torch.float32).to(device)
-    X_val_tensor = torch.tensor(X_val, dtype=torch.float32).to(device)
-    y_val_tensor = torch.tensor(y_val, dtype=torch.float32).to(device)
-    X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
-    y_test_tensor = torch.tensor(y_test, dtype=torch.float32).to(device)
+    # MLflow 추적 (로컬 추적 서버)
+    tracker = MLflowTracker(experiment_name="smart_factory_lstm")
     
-    # 데이터 로더 생성
-    train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
-    val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
-    test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
+    # 하이퍼파라미터
+    params = {
+        "hidden_size": 64,
+        "num_layers": 2,
+        "learning_rate": 0.001,
+        "batch_size": 32,
+        "sequence_length": data_info['sequence_length'],
+        "input_size": data_info['input_size'],
+        "feature_count": len(data_info['feature_cols'])
+    }
     
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    # 훈련 추적
+    run_id = tracker.track_training(
+        model=model,
+        train_history=history,
+        test_metrics=metrics,
+        params=params,
+        model_name="smart_factory_lstm_model",
+        description="LSTM 모델 - 센서 데이터 예측",
+        register=True,
+        plots=True
+    )
     
-    # 모델 초기화
-    input_size = X_train.shape[2]  # 특성 수
-    output_size = 1
-    
-    model = LSTMModel(
-        input_size=input_size,
-        hidden_size=HIDDEN_SIZE,
-        num_layers=NUM_LAYERS,
-        output_size=output_size
-    ).to(device)
-    
-    print(f"모델 생성: 입력 크기={input_size}, 은닉층 크기={HIDDEN_SIZE}, 레이어 수={NUM_LAYERS}")
-    
-    # MLflow 실행 시작
-    with mlflow.start_run() as run:
-        run_id = run.info.run_id
-        print(f"MLflow 실행 ID: {run_id}")
-        
-        # 하이퍼파라미터 로깅
-        mlflow.log_params({
-            "sequence_length": SEQUENCE_LENGTH,
-            "hidden_size": HIDDEN_SIZE,
-            "num_layers": NUM_LAYERS,
-            "learning_rate": LEARNING_RATE,
-            "batch_size": BATCH_SIZE,
-            "epochs": EPOCHS,
-            "input_size": input_size,
-            "output_size": output_size,
-            "optimizer": "Adam",
-            "loss_function": "MSELoss"
-        })
-        
-        # 손실 함수와 최적화 도구 정의
-        criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-        
-        # 조기 종료 설정
-        best_val_loss = float('inf')
-        patience = 10
-        counter = 0
-        
-        # 학습 루프
-        train_losses = []
-        val_losses = []
-        
-        for epoch in range(EPOCHS):
-            # 학습 모드
-            model.train()
-            train_loss = 0.0
-            
-            for inputs, targets in train_loader:
-                optimizer.zero_grad()
-                outputs = model(inputs)
-                loss = criterion(outputs, targets)
-                loss.backward()
-                optimizer.step()
-                train_loss += loss.item()
-            
-            # 에폭당 평균 학습 손실
-            train_loss = train_loss / len(train_loader)
-            train_losses.append(train_loss)
-            
-            # 검증 모드
-            model.eval()
-            val_loss = 0.0
-            with torch.no_grad():
-                for inputs, targets in val_loader:
-                    outputs = model(inputs)
-                    loss = criterion(outputs, targets)
-                    val_loss += loss.item()
-            
-            val_loss = val_loss / len(val_loader)
-            val_losses.append(val_loss)
-            
-            # 에폭 결과 로깅
-            mlflow.log_metrics({
-                "train_loss": train_loss,
-                "val_loss": val_loss
-            }, step=epoch)
-            
-            print(f"에폭 {epoch+1}/{EPOCHS}, 학습 손실: {train_loss:.6f}, 검증 손실: {val_loss:.6f}")
-            
-            # 조기 종료 체크
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                counter = 0
-                # 최상의 모델 저장
-                torch.save(model.state_dict(), MODEL_PATH)
-                print(f"모델 저장됨: {MODEL_PATH}")
-            else:
-                counter += 1
-                if counter >= patience:
-                    print(f"조기 종료 (에폭 {epoch+1})")
-                    break
-        
-        # 손실 그래프 저장 및 로깅
-        plt.figure(figsize=(10, 6))
-        plt.plot(train_losses, label='학습 손실')
-        plt.plot(val_losses, label='검증 손실')
-        plt.title('에폭별 손실')
-        plt.xlabel('에폭')
-        plt.ylabel('손실')
-        plt.legend()
-        plt.grid(True)
-        
-        loss_plot_path = f"/tmp/loss_plot_{run_id}.png"
-        plt.savefig(loss_plot_path)
-        plt.close()
-        
-        mlflow.log_artifact(loss_plot_path)
-        
-        # 최적의 모델 로드
-        model.load_state_dict(torch.load(MODEL_PATH))
-        
-        # 테스트 데이터로 모델 평가
-        model.eval()
-        test_loss = 0.0
-        predictions = []
-        actuals = []
-        
-        with torch.no_grad():
-            for inputs, targets in test_loader:
-                outputs = model(inputs)
-                loss = criterion(outputs, targets)
-                test_loss += loss.item()
-                
-                # 예측값과 실제값 저장
-                predictions.extend(outputs.cpu().numpy())
-                actuals.extend(targets.cpu().numpy())
-        
-        test_loss = test_loss / len(test_loader)
-        print(f"테스트 손실: {test_loss:.6f}")
-        
-        # 테스트 손실 로깅
-        mlflow.log_metric("test_loss", test_loss)
-        
-        # 예측값과 실제값 역정규화
-        predictions = y_scaler.inverse_transform(np.array(predictions))
-        actuals = y_scaler.inverse_transform(np.array(actuals))
-        
-        # 성능 지표 계산
-        rmse = np.sqrt(np.mean((predictions - actuals) ** 2))
-        mae = np.mean(np.abs(predictions - actuals))
-        
-        print(f"RMSE: {rmse:.6f}")
-        print(f"MAE: {mae:.6f}")
-        
-        # 성능 지표 로깅
-        mlflow.log_metrics({
-            "rmse": rmse,
-            "mae": mae
-        })
-        
-        # 예측 결과 시각화 및 로깅
-        pred_plot_path = plot_results(actuals, predictions, "테스트 데이터 예측 결과")
-        mlflow.log_artifact(pred_plot_path)
-        
-        # 스케일러 저장
-        np.save("/app/models/X_scaler.npy", X_scaler)
-        np.save("/app/models/y_scaler.npy", y_scaler)
-        
-        # 메타데이터 저장
-        model_info = {
-            "input_size": input_size,
-            "hidden_size": HIDDEN_SIZE,
-            "num_layers": NUM_LAYERS,
-            "output_size": output_size,
-            "sequence_length": SEQUENCE_LENGTH,
-            "feature_cols": feature_cols.tolist(),
-            "target_col": target_col,
-            "test_loss": test_loss,
-            "rmse": rmse,
-            "mae": mae,
-            "train_samples": X_train.shape[0],
-            "created_at": datetime.now().isoformat()
-        }
-        
-        import json
-        with open("/app/models/model_info.json", "w") as f:
-            json.dump(model_info, f, indent=2)
-        
-        # 모델 등록
-        mlflow.pytorch.log_model(model, "lstm_model")
-        
-        print(f"학습 완료! MLflow 실행 ID: {run_id}")
-        print(f"모델 저장 경로: {MODEL_PATH}")
+    print(f"MLflow 학습 추적 완료: 실행 ID {run_id}")
+
 
 if __name__ == "__main__":
     main()

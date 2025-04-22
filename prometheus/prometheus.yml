@@ -26,7 +26,7 @@ scrape_configs:
     metrics_path: /metrics
     scrape_interval: 5s
     static_configs:
-      - targets: ["model-serving:8000"]
+      - targets: ["localhost:8001"]
         labels:
           service: "model-serving-api"
 
@@ -43,18 +43,3 @@ scrape_configs:
       - targets: ["node-exporter:9100"]
         labels:
           instance: "docker-host"
-
-  # Airflow 모니터링
-  - job_name: "airflow"
-    static_configs:
-      - targets: ["airflow-statsd-exporter:9102"]
-        labels:
-          service: "airflow"
-
-  # MLflow 모니터링
-  - job_name: "mlflow"
-    metrics_path: /metrics
-    static_configs:
-      - targets: ["mlflow-exporter:9105"]
-        labels:
-          service: "mlflow"
