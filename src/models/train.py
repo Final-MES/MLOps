@@ -378,7 +378,7 @@ def evaluate_model(
 
 if __name__ == "__main__":
     # 예제 사용법
-    DATA_PATH = "data/processed/sensor_data.csv"
+    DATA_PATH = "./data/processed/sensor_data.csv"
     
     # 데이터 준비
     train_loader, val_loader, test_loader, data_info = prepare_data(
