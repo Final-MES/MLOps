@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 # 프로젝트 모듈 임포트
 from src.data.preprocessor import SensorDataPreprocessor  # 데이터 전처리용 클래스
-from models.multivariate_model import prepare_multivariate_data, train_multivariate_model, MultivariateLSTMClassifier  # 모델 학습 관련 함수와 클래스
-from models.evaluation import evaluate_multivariate_model, analyze_misclassifications, feature_importance_analysis  # 모델 평가 관련 함수
+from src.models.multivariate_model import prepare_multivariate_data, train_multivariate_model, MultivariateLSTMClassifier  # 모델 학습 관련 함수와 클래스
+from src.models.evaluation import evaluate_multivariate_model, analyze_misclassifications, feature_importance_analysis  # 모델 평가 관련 함수
 def main():
     """다변량 시계열 분류 모델을 사용한 이상 감지 파이프라인 실행 예제"""
     
@@ -52,7 +52,7 @@ def preprocess_sensor_data(args):
     
     # 각 센서 데이터 파일 목록 가져오기
     sensor_files = {}
-    for sensor_id in ['sensor1', 'sensor2', 'sensor3', 'sensor4']:
+    for sensor_id in ['g1_sensor1', 'g1_sensor2', 'g1_sensor3', 'g1_sensor4']:
         sensor_files[sensor_id] = []
         for state in ['normal', 'type1', 'type2', 'type3']:
             pattern = f"{sensor_id}_{state}*.csv"
