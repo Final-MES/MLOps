@@ -9,8 +9,13 @@ RUN apt-get update && \
     build-essential \
     git \
     curl \
+    pkg-config \
+    libssl-dev \
+    libffi-dev \
+    default-libmysqlclient-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
 
 # pip 업그레이드
 RUN pip install --no-cache-dir --upgrade pip

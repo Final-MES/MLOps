@@ -24,7 +24,7 @@ dag = DAG(
     'sensor_data_processing_pipeline',
     default_args=default_args,
     description='서로 다른 주기의 센서 데이터 처리 및 보간 파이프라인',
-    schedule_interval=timedelta(hours=1),
+    schedule=timedelta(hours=1),
     catchup=False,
 )
 
