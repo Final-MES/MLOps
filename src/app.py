@@ -69,7 +69,7 @@ def main():
             
             # MLflow 통합 (선택적)
             if os.getenv('USE_MLFLOW', 'False').lower() == 'true':
-                from src.mlflow.mlflow import MLflowTracker
+                from mlflow.tracker import MLflowTracker
                 
                 # MLflow 추적기 초기화
                 tracker = MLflowTracker(

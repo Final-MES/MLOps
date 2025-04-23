@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 # 프로젝트 모듈 임포트
 from src.data_preprocessing import SensorDataPreprocessor  # 데이터 전처리용 클래스
-from src.models.multivariate_timeseries_model import prepare_multivariate_data, train_multivariate_model, MultivariateLSTMClassifier  # 모델 학습 관련 함수와 클래스
-from src.models.model_evaluation import evaluate_multivariate_model, analyze_misclassifications, feature_importance_analysis  # 모델 평가 관련 함수
+from models.multivariate_model import prepare_multivariate_data, train_multivariate_model, MultivariateLSTMClassifier  # 모델 학습 관련 함수와 클래스
+from models.evaluation import evaluate_multivariate_model, analyze_misclassifications, feature_importance_analysis  # 모델 평가 관련 함수
 def main():
     """다변량 시계열 분류 모델을 사용한 이상 감지 파이프라인 실행 예제"""
     
