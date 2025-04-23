@@ -1,4 +1,3 @@
-import os
 import logging
 import argparse
 import pandas as pd
@@ -7,6 +6,8 @@ import torch
 import json
 import matplotlib.pyplot as plt
 from datetime import datetime
+from pathlib import Path
+import glob
 
 # 로깅 설정
 logging.basicConfig(
@@ -15,27 +16,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# paths.py 유틸리티 임포트
+from src.utils.paths import get_project_paths, get_data_path, get_model_path, ensure_dir
+
 # 프로젝트 모듈 임포트
 from src.data.preprocessor import SensorDataPreprocessor  # 데이터 전처리용 클래스
 from src.models.multivariate_model import prepare_multivariate_data, train_multivariate_model, MultivariateLSTMClassifier  # 모델 학습 관련 함수와 클래스
 from src.models.evaluation import evaluate_multivariate_model, analyze_misclassifications, feature_importance_analysis  # 모델 평가 관련 함수
+
 def main():
     """다변량 시계열 분류 모델을 사용한 이상 감지 파이프라인 실행 예제"""
     
     parser = argparse.ArgumentParser(description='다변량 시계열 분류 모델을 사용한 이상 감지')
     parser.add_argument('--mode', type=str, choices=['preprocess', 'train', 'evaluate', 'infer'], 
                       default='train', help='실행 모드')
-    parser.add_argument('--data_dir', type=str, default='data/raw', help='원시 데이터 디렉토리')
-    parser.add_argument('--processed_dir', type=str, default='data/processed', help='처리된 데이터 디렉토리')
-    parser.add_argument('--model_dir', type=str, default='models', help='모델 저장 디렉토리')
-    parser.add_argument('--plot_dir', type=str, default='plots', help='시각화 저장 디렉토리')
+    parser.add_argument('--data_dir', type=str, default='raw', help='원시 데이터 서브디렉토리')
+    parser.add_argument('--processed_dir', type=str, default='processed', help='처리된 데이터 서브디렉토리')
     parser.add_argument('--sequence_length', type=int, default=50, help='시계열 시퀀스 길이')
     args = parser.parse_args()
     
-    # 필요한 디렉토리 생성
-    os.makedirs(args.processed_dir, exist_ok=True)
-    os.makedirs(args.model_dir, exist_ok=True)
-    os.makedirs(args.plot_dir, exist_ok=True)
+    # 프로젝트 경로 설정
+    project_paths = get_project_paths()
+    
+    # 필요한 디렉토리 생성 (Path 객체 사용)
+    data_raw_path = ensure_dir(get_data_path(args.data_dir))
+    data_processed_path = ensure_dir(get_data_path(args.processed_dir))
+    model_path = ensure_dir(project_paths["models"])
+    plot_path = ensure_dir(project_paths["root"] / "plots")
+    
+    # 경로 정보 업데이트
+    args.data_dir = data_raw_path
+    args.processed_dir = data_processed_path
+    args.model_dir = model_path
+    args.plot_dir = plot_path
     
     if args.mode == 'preprocess':
         preprocess_sensor_data(args)
@@ -56,8 +69,7 @@ def preprocess_sensor_data(args):
         sensor_files[sensor_id] = []
         for state in ['normal', 'type1', 'type2', 'type3']:
             pattern = f"{sensor_id}_{state}*.csv"
-            import glob
-            matching_files = glob.glob(os.path.join(args.data_dir, pattern))
+            matching_files = list(args.data_dir.glob(pattern))
             if matching_files:
                 sensor_files[sensor_id].extend(matching_files)
     
@@ -73,7 +85,7 @@ def preprocess_sensor_data(args):
         # 각 센서별 현재 상태의 데이터 로드
         state_sensor_data = {}
         for sensor_id, files in sensor_files.items():
-            state_files = [f for f in files if f"_{state}" in f]
+            state_files = [f for f in files if f"_{state}" in str(f)]
             if not state_files:
                 logger.warning(f"{sensor_id}의 {state} 상태 데이터 파일을 찾을 수 없음")
                 continue
@@ -130,7 +142,8 @@ def preprocess_sensor_data(args):
         final_df = final_df.fillna(method='ffill').fillna(method='bfill')
         
         # 처리된 데이터 저장
-        output_path = os.path.join(args.processed_dir, f"multivariate_sensor_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_path = args.processed_dir / f"multivariate_sensor_data_{timestamp}.csv"
         final_df.to_csv(output_path, index=False)
         logger.info(f"통합 데이터 저장 완료: {output_path} (총 {len(final_df)} 행)")
         
@@ -140,7 +153,7 @@ def preprocess_sensor_data(args):
         feature_df = preprocessor.extract_frequency_features(feature_df, columns=[col for col in final_df.columns if col != 'time' and col != 'state'])
         
         # 특성이 추가된 데이터 저장
-        feature_output_path = os.path.join(args.processed_dir, f"multivariate_sensor_data_with_features_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+        feature_output_path = args.processed_dir / f"multivariate_sensor_data_with_features_{timestamp}.csv"
         feature_df.to_csv(feature_output_path, index=False)
         logger.info(f"특성이 추가된 데이터 저장 완료: {feature_output_path} (총 {len(feature_df)} 행, {len(feature_df.columns)} 열)")
         
@@ -152,20 +165,19 @@ def preprocess_sensor_data(args):
 def train_model(args):
     """다변량 시계열 분류 모델 학습"""
     # 처리된 데이터 파일 찾기
-    import glob
-    processed_files = glob.glob(os.path.join(args.processed_dir, "multivariate_sensor_data_with_features_*.csv"))
+    processed_files = list(args.processed_dir.glob("multivariate_sensor_data_with_features_*.csv"))
     
     if not processed_files:
         logger.error("처리된 데이터 파일을 찾을 수 없습니다. 먼저 preprocess 모드를 실행하세요.")
         return
     
     # 가장 최근 파일 사용
-    data_path = max(processed_files, key=os.path.getctime)
+    data_path = max(processed_files, key=lambda p: p.stat().st_ctime)
     logger.info(f"학습에 사용할 데이터 파일: {data_path}")
     
     # 데이터 준비
     train_loader, val_loader, test_loader, data_info = prepare_multivariate_data(
-        data_path=data_path,
+        data_path=str(data_path),  # API가 문자열을 요구할 경우 변환
         state_column='state',
         time_column='time',
         feature_cols=None,  # 자동으로 모든 특성 사용
@@ -183,6 +195,10 @@ def train_model(args):
     logger.info(f"- 검증 데이터: {data_info['val_size']} 샘플")
     logger.info(f"- 테스트 데이터: {data_info['test_size']} 샘플")
     
+    # 모델 파일 경로 생성
+    model_filename = "multivariate_lstm_classifier"
+    model_file_path = get_model_path(model_filename)
+    
     # 모델 학습
     model, history = train_multivariate_model(
         train_loader=train_loader,
@@ -193,8 +209,8 @@ def train_model(args):
         learning_rate=0.001,
         epochs=100,
         patience=10,
-        model_dir=args.model_dir,
-        model_name="multivariate_lstm_classifier"
+        model_dir=str(args.model_dir),  # 필요시 문자열로 변환
+        model_name=model_filename
     )
     
     # 학습 이력 시각화
@@ -221,8 +237,9 @@ def train_model(args):
     plt.grid(True)
     
     plt.tight_layout()
-    plt.savefig(os.path.join(args.plot_dir, 'training_history.png'))
-    logger.info(f"학습 이력 시각화 저장: {os.path.join(args.plot_dir, 'training_history.png')}")
+    plot_file = args.plot_dir / 'training_history.png'
+    plt.savefig(plot_file)
+    logger.info(f"학습 이력 시각화 저장: {plot_file}")
     
     # 모델 평가
     evaluation_result = evaluate_multivariate_model(
@@ -231,11 +248,11 @@ def train_model(args):
         data_info=data_info,
         plot=True,
         save_plot=True,
-        plot_dir=args.plot_dir
+        plot_dir=str(args.plot_dir)  # 필요시 문자열로 변환
     )
     
     # 평가 결과 저장
-    eval_path = os.path.join(args.model_dir, 'evaluation_results.json')
+    eval_path = args.model_dir / 'evaluation_results.json'
     with open(eval_path, 'w') as f:
         json.dump(evaluation_result, f, indent=2)
     
@@ -247,10 +264,11 @@ def train_model(args):
 def evaluate_model(args):
     """저장된 모델을 평가하고 분석"""
     # 모델 파일 찾기
-    model_path = os.path.join(args.model_dir, "multivariate_lstm_classifier.pth")
-    model_info_path = os.path.join(args.model_dir, "multivariate_lstm_classifier_info.json")
+    model_filename = "multivariate_lstm_classifier"
+    model_path = get_model_path(model_filename)
+    model_info_path = args.model_dir / f"{model_filename}_info.json"
     
-    if not os.path.exists(model_path) or not os.path.exists(model_info_path):
+    if not model_path.exists() or not model_info_path.exists():
         logger.error("모델 파일을 찾을 수 없습니다. 먼저 train 모드를 실행하세요.")
         return
     
@@ -259,20 +277,19 @@ def evaluate_model(args):
         model_info = json.load(f)
     
     # 처리된 데이터 파일 찾기
-    import glob
-    processed_files = glob.glob(os.path.join(args.processed_dir, "multivariate_sensor_data_with_features_*.csv"))
+    processed_files = list(args.processed_dir.glob("multivariate_sensor_data_with_features_*.csv"))
     
     if not processed_files:
         logger.error("처리된 데이터 파일을 찾을 수 없습니다.")
         return
     
     # 가장 최근 파일 사용
-    data_path = max(processed_files, key=os.path.getctime)
+    data_path = max(processed_files, key=lambda p: p.stat().st_ctime)
     logger.info(f"평가에 사용할 데이터 파일: {data_path}")
     
     # 데이터 준비
     _, _, test_loader, data_info = prepare_multivariate_data(
-        data_path=data_path,
+        data_path=str(data_path),  # 문자열로 변환
         state_column='state',
         time_column='time',
         feature_cols=None,  # 자동으로 모든 특성 사용
@@ -304,7 +321,7 @@ def evaluate_model(args):
         data_info=data_info,
         plot=True,
         save_plot=True,
-        plot_dir=args.plot_dir
+        plot_dir=str(args.plot_dir)  # 문자열로 변환
     )
     
     # 오분류 분석
@@ -313,7 +330,7 @@ def evaluate_model(args):
         test_loader=test_loader,
         data_info=data_info,
         max_samples=5,
-        plot_dir=args.plot_dir
+        plot_dir=str(args.plot_dir)  # 문자열로 변환
     )
     
     # 특성 중요도 분석
@@ -323,7 +340,7 @@ def evaluate_model(args):
         data_info=data_info,
         feature_names=data_info['feature_cols'][:20],  # 처음 20개 특성만 이름 사용
         plot=True,
-        plot_dir=args.plot_dir
+        plot_dir=str(args.plot_dir)  # 문자열로 변환
     )
     
     # 종합 분석 결과 저장
@@ -332,7 +349,7 @@ def evaluate_model(args):
         'feature_importance': feature_importance_result
     }
     
-    analysis_path = os.path.join(args.model_dir, 'model_analysis_results.json')
+    analysis_path = args.model_dir / 'model_analysis_results.json'
     with open(analysis_path, 'w') as f:
         json.dump(analysis_result, f, indent=2)
     
@@ -343,10 +360,11 @@ def evaluate_model(args):
 def perform_inference(args):
     """실시간 데이터에 대한 추론 수행 예시"""
     # 모델 파일 찾기
-    model_path = os.path.join(args.model_dir, "multivariate_lstm_classifier.pth")
-    model_info_path = os.path.join(args.model_dir, "multivariate_lstm_classifier_info.json")
+    model_filename = "multivariate_lstm_classifier"
+    model_path = get_model_path(model_filename)
+    model_info_path = args.model_dir / f"{model_filename}_info.json"
     
-    if not os.path.exists(model_path) or not os.path.exists(model_info_path):
+    if not model_path.exists() or not model_info_path.exists():
         logger.error("모델 파일을 찾을 수 없습니다. 먼저 train 모드를 실행하세요.")
         return
     
@@ -374,8 +392,11 @@ def perform_inference(args):
     logger.info("예제 데이터로 추론 수행")
     
     # 테스트 데이터 준비
+    processed_files = list(args.processed_dir.glob("multivariate_sensor_data_with_features_*.csv"))
+    latest_data_path = max(processed_files, key=lambda p: p.stat().st_ctime)
+    
     _, _, test_loader, data_info = prepare_multivariate_data(
-        data_path=max(glob.glob(os.path.join(args.processed_dir, "multivariate_sensor_data_with_features_*.csv")), key=os.path.getctime),
+        data_path=str(latest_data_path),  # 문자열로 변환
         state_column='state',
         time_column='time',
         feature_cols=None,

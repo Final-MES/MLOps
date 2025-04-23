@@ -1,4 +1,3 @@
-import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -12,8 +11,10 @@ from torch.utils.data import DataLoader, TensorDataset
 import logging
 import json
 from datetime import datetime
+from pathlib import Path
 
 from src.models.lstm_model import LSTMModel
+from src.utils.paths import get_data_path, get_model_path, ensure_dir, get_project_paths
 
 # 로깅 설정
 logging.basicConfig(
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def prepare_data(
-    data_path: str,
+    data_path: Path,
     feature_cols: Optional[List[str]] = None,
     target_col: Optional[str] = None,
     sequence_length: int = 24,
@@ -36,7 +37,7 @@ def prepare_data(
     시계열 데이터를 준비하고 데이터 로더를 반환합니다.
     
     Args:
-        data_path (str): 데이터 파일 경로
+        data_path (Path): 데이터 파일 경로
         feature_cols (List[str], optional): 특성 컬럼 목록. None이면 타겟을 제외한 모든 컬럼 사용
         target_col (str, optional): 타겟 컬럼명. None이면 마지막 컬럼 사용
         sequence_length (int): 시퀀스 길이
@@ -161,7 +162,6 @@ def train_lstm_model(
     learning_rate: float = 0.001,
     epochs: int = 100,
     patience: int = 10,
-    model_dir: str = "models",
     model_name: str = "lstm_model"
 ) -> Tuple[LSTMModel, Dict[str, List[float]]]:
     """
@@ -176,7 +176,6 @@ def train_lstm_model(
         learning_rate (float): 학습률
         epochs (int): 학습 에폭 수
         patience (int): 조기 종료 인내 횟수
-        model_dir (str): 모델 저장 디렉토리
         model_name (str): 모델 이름
     
     Returns:
@@ -209,9 +208,12 @@ def train_lstm_model(
     counter = 0
     
     # 모델 저장 경로
-    os.makedirs(model_dir, exist_ok=True)
-    model_path = os.path.join(model_dir, f"{model_name}.pth")
-    model_info_path = os.path.join(model_dir, f"{model_name}_info.json")
+    model_path = get_model_path(model_name)
+    model_dir = model_path.parent
+    ensure_dir(model_dir)
+    
+    # 모델 정보 파일 경로
+    model_info_path = model_dir / f"{model_name}_info.json"
     
     # 학습 루프
     for epoch in range(epochs):
@@ -292,7 +294,7 @@ def evaluate_model(
     data_info: Dict[str, Any],
     plot: bool = True,
     save_plot: bool = True,
-    plot_dir: str = "plots"
+    plot_name: str = "prediction_results"
 ) -> Dict[str, float]:
     """
     학습된 모델을 평가합니다.
@@ -303,7 +305,7 @@ def evaluate_model(
         data_info (Dict[str, Any]): 데이터 정보
         plot (bool): 결과 시각화 여부
         save_plot (bool): 시각화 결과 저장 여부
-        plot_dir (str): 시각화 결과 저장 디렉토리
+        plot_name (str): 시각화 결과 파일명
     
     Returns:
         Dict[str, float]: 평가 지표
@@ -360,9 +362,13 @@ def evaluate_model(
         plt.grid(True)
         
         if save_plot:
-            os.makedirs(plot_dir, exist_ok=True)
-            plt.savefig(os.path.join(plot_dir, 'prediction_results.png'))
-            logger.info(f"예측 결과 그래프 저장: {os.path.join(plot_dir, 'prediction_results.png')}")
+            # plots 디렉토리 경로 가져오기 및 생성
+            plot_dir = get_project_paths()["root"] / "plots"
+            ensure_dir(plot_dir)
+            
+            plot_path = plot_dir / f"{plot_name}.png"
+            plt.savefig(plot_path)
+            logger.info(f"예측 결과 그래프 저장: {plot_path}")
         
         plt.show()
     
@@ -378,7 +384,7 @@ def evaluate_model(
 
 if __name__ == "__main__":
     # 예제 사용법
-    DATA_PATH = "./data/processed/sensor_data.csv"
+    DATA_PATH = get_data_path("processed") / "sensor_data.csv"
     
     # 데이터 준비
     train_loader, val_loader, test_loader, data_info = prepare_data(
@@ -396,7 +402,6 @@ if __name__ == "__main__":
         learning_rate=0.001,
         epochs=100,
         patience=10,
-        model_dir="models",
         model_name="lstm_model"
     )
     
@@ -407,5 +412,5 @@ if __name__ == "__main__":
         data_info=data_info,
         plot=True,
         save_plot=True,
-        plot_dir="plots"
+        plot_name="prediction_results"
     )
