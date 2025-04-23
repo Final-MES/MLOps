@@ -8,7 +8,7 @@ import numpy as np
 import json
 import os
 import logging
-from src.data_preprocessing import SensorDataPreprocessor  # 보간 기능이 있는 클래스 임포트
+from src.data.preprocessor import SensorDataPreprocessor  # 보간 기능이 있는 클래스 임포트
 
 default_args = {
     'owner': 'airflow',
@@ -38,7 +38,7 @@ def read_sensor_data(**kwargs):
         logging.info(f"Variable sensor_data_dir not found, using default path: {data_dir}")
     
     # 센서 ID 목록
-    sensor_ids = ['sensor1', 'sensor2', 'sensor3', 'sensor4']
+    sensor_ids = ['g1_sensor1', 'g1_sensor2', 'g1_sensor3', 'g1_sensor4']
     
     # 각 센서별 데이터 로드
     sensor_data = {}
@@ -55,7 +55,7 @@ def read_sensor_data(**kwargs):
             file_path = os.path.join(data_dir, latest_file)
             
             # 데이터 로드
-            df = pd.read_csv(file_path)
+            df = pd.read_csv(file_path, names=["timestamp","normal","type1","type2","type3"],header = None)
             
             # 시간 컬럼 확인 및 변환
             if 'timestamp' in df.columns:

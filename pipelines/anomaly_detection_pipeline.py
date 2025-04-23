@@ -16,7 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 프로젝트 모듈 임포트
-from src.data_preprocessing import SensorDataPreprocessor  # 데이터 전처리용 클래스
+from src.data.preprocessor import SensorDataPreprocessor  # 데이터 전처리용 클래스
 from models.multivariate_model import prepare_multivariate_data, train_multivariate_model, MultivariateLSTMClassifier  # 모델 학습 관련 함수와 클래스
 from models.evaluation import evaluate_multivariate_model, analyze_misclassifications, feature_importance_analysis  # 모델 평가 관련 함수
 def main():
