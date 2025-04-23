@@ -1,24 +1,32 @@
 # src/utils/paths.py - 경로 처리 유틸리티
 from pathlib import Path
-import os
 
 # 프로젝트 루트 디렉토리
-PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()
+def get_project_paths():
+    """프로젝트의 주요 경로들을 딕셔너리로 반환"""
+    root = Path(__file__).parent.parent.parent.absolute()
+    return {
+        "root": root,
+        "config": root / "config",
+        "data": root / "data",
+        "models": root / "models",
+        "logs": root / "logs",
+    }
 
 def get_config_path() -> Path:
     """설정 파일 경로"""
-    return PROJECT_ROOT / 'config'
+    return get_project_paths()["config"]
 
 def get_data_path(subdir: str = '') -> Path:
     """데이터 디렉토리 경로"""
-    path = PROJECT_ROOT / 'data'
+    path = get_project_paths()["data"]
     if subdir:
         path = path / subdir
     return path
 
 def get_model_path(model_name: str = '') -> Path:
     """모델 파일 경로"""
-    path = PROJECT_ROOT / 'models'
+    path = get_project_paths()["models"]
     if model_name:
         path = path / f"{model_name}.pth"
     return path
