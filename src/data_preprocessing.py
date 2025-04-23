@@ -29,6 +29,24 @@ class SensorDataPreprocessor:
         self.window_size = window_size
         logger.info(f"센서 데이터 전처리기 초기화: 윈도우 크기 = {window_size}")
     
+    def load_data(self, file_path: str) -> pd.DataFrame:
+        """
+        데이터 파일 로드
+        
+        Args:
+            file_path (str): 로드할 파일 경로
+            
+        Returns:
+            pd.DataFrame: 로드된 데이터프레임
+        """
+        try:
+            df = pd.read_csv(file_path)
+            logger.info(f"파일 로드 성공: {file_path}, {len(df)} 행")
+            return df
+        except Exception as e:
+            logger.error(f"파일 로드 중 오류 발생: {e}")
+            raise
+    
     def interpolate_sensor_data(
         self, 
         sensor_data: Dict[str, pd.DataFrame], 
@@ -108,6 +126,46 @@ class SensorDataPreprocessor:
         
         return interpolated_data
     
+    def clean_data(
+        self, 
+        df: pd.DataFrame,
+        drop_columns: List[str] = None,
+        fill_na: bool = True
+    ) -> pd.DataFrame:
+        """
+        데이터 정제: 불필요한 컬럼 제거, 결측치 처리
+        
+        Args:
+            df (pd.DataFrame): 원본 데이터프레임
+            drop_columns (List[str], optional): 제거할 컬럼 목록
+            fill_na (bool): 결측치 처리 여부
+            
+        Returns:
+            pd.DataFrame: 정제된 데이터프레임
+        """
+        result_df = df.copy()
+        
+        # 불필요한 컬럼 제거
+        if drop_columns:
+            cols_to_drop = [col for col in drop_columns if col in result_df.columns]
+            if cols_to_drop:
+                result_df = result_df.drop(columns=cols_to_drop)
+                logger.info(f"컬럼 제거: {cols_to_drop}")
+        
+        # 결측치 처리
+        if fill_na:
+            # 먼저 앞/뒤 값으로 채우기
+            result_df = result_df.fillna(method='ffill').fillna(method='bfill')
+            
+            # 남은 결측치는 컬럼별 평균으로 대체
+            for col in result_df.columns:
+                if result_df[col].dtype.kind in 'ifc':  # 숫자형 컬럼만
+                    result_df[col] = result_df[col].fillna(result_df[col].mean())
+            
+            logger.info("결측치 처리 완료")
+        
+        return result_df
+    
     def apply_moving_average(
         self, 
         df: pd.DataFrame, 
@@ -161,182 +219,100 @@ class SensorDataPreprocessor:
         
         return result_df
     
-    def get_ma_columns(self, df: pd.DataFrame, prefix: str, window_size: int = None) -> np.ndarray:
+    def scale_data(
+        self,
+        df: pd.DataFrame,
+        target_column: str = None,
+        method: str = 'minmax'
+    ) -> Dict[str, any]:
         """
-        이동 평균이 적용된 컬럼을 추출하여 NumPy 배열로 반환합니다.
+        데이터 스케일링 수행
         
         Args:
-            df (pd.DataFrame): 이동 평균이 적용된 데이터프레임
-            prefix (str): 추출할 컬럼의 접두사 (예: 's1', 's2')
-            window_size (int, optional): 이동 평균 윈도우 크기. None이면 초기화 시 지정한 값 사용.
+            df (pd.DataFrame): 스케일링할 데이터프레임
+            target_column (str, optional): 타겟 컬럼명 (스케일링에서 제외)
+            method (str): 스케일링 방법 ('minmax' 또는 'standard')
             
         Returns:
-            np.ndarray: 추출된 데이터를 포함하는 형태가 변환된(reshaped) 배열
+            Dict[str, any]: 스케일링된 특성, 타겟 및 관련 정보
         """
-        if window_size is None:
-            window_size = self.window_size
-        
-        column_name = f"{prefix}_ma{window_size}" if f"{prefix}_ma{window_size}" in df.columns else prefix
-        
-        if column_name in df.columns:
-            values = df[column_name].values
-            # NaN 값 제거 (이동 평균 적용으로 인한 시작 부분의 NaN)
-            values = values[~np.isnan(values)]
-            # 배열 형태 변환 (n,1) 형태로
-            return values.reshape(len(values), 1)
+        # 타겟 컬럼과 특성 컬럼 분리
+        if target_column and target_column in df.columns:
+            target = df[target_column].values
+            feature_cols = [col for col in df.columns if col != target_column and df[col].dtype.kind in 'ifc']
+            features = df[feature_cols].values
         else:
-            logger.warning(f"컬럼 {column_name}이 데이터프레임에 존재하지 않습니다.")
-            return np.array([]).reshape(0, 1)
+            target = None
+            feature_cols = [col for col in df.columns if df[col].dtype.kind in 'ifc']
+            features = df[feature_cols].values
+        
+        # 스케일링 방법 선택
+        from sklearn.preprocessing import MinMaxScaler, StandardScaler
+        
+        if method.lower() == 'minmax':
+            scaler = MinMaxScaler(feature_range=(-1, 1))
+        else:  # 'standard' 기본값
+            scaler = StandardScaler()
+        
+        # 특성 스케일링
+        scaled_features = scaler.fit_transform(features)
+        
+        logger.info(f"데이터 스케일링 완료: 방법={method}, 특성 수={features.shape[1]}")
+        
+        return {
+            'features': scaled_features,
+            'target': target,
+            'feature_columns': feature_cols,
+            'scaler': scaler
+        }
     
-    def preprocess_sensor_data(
-        self, 
-        sensor_data: Dict[str, pd.DataFrame],
-        sensor_columns: List[str] = None,
-        fault_types: List[str] = None
-    ) -> Dict[str, np.ndarray]:
+    def extract_statistical_moments(
+        self,
+        df: pd.DataFrame,
+        columns: List[str] = None,
+        window_size: int = 100
+    ) -> pd.DataFrame:
         """
-        센서 데이터를 완전히 전처리하여 분석 준비가 된 형태로 변환합니다.
+        시계열 데이터에서 통계적 모멘트를 추출합니다.
         
         Args:
-            sensor_data (Dict[str, pd.DataFrame]): 각 센서별 데이터프레임을 포함하는 사전
-            sensor_columns (List[str], optional): 처리할 센서 컬럼 목록 (예: ['s1', 's2', 's3', 's4'])
-            fault_types (List[str], optional): 처리할 고장 유형 목록 (예: ['normal', 'type1', 'type2', 'type3'])
+            df (pd.DataFrame): 원본 데이터프레임
+            columns (List[str], optional): 처리할 컬럼 목록. None이면 숫자형 컬럼 모두 사용.
+            window_size (int): 통계량 계산을 위한 윈도우 크기
             
         Returns:
-            Dict[str, np.ndarray]: 전처리된 데이터를 포함하는 사전
-            (각 고장 유형별로 모든 센서 데이터가 통합된 배열)
+            pd.DataFrame: 통계적 모멘트가 추가된 데이터프레임
         """
-        if sensor_columns is None:
-            sensor_columns = ['s1', 's2', 's3', 's4']
+        # 컬럼이 지정되지 않은 경우 숫자형 컬럼 모두 선택
+        if columns is None:
+            columns = df.select_dtypes(include=[np.number]).columns.tolist()
+            # 'time' 컬럼은 제외
+            if 'time' in columns:
+                columns.remove('time')
         
-        if fault_types is None:
-            fault_types = ['normal', 'type1', 'type2', 'type3']
+        logger.info(f"통계적 모멘트 추출: 윈도우 크기={window_size}, 컬럼={columns}")
         
-        logger.info(f"센서 데이터 전처리 시작: 센서={sensor_columns}, 고장 유형={fault_types}")
+        result_df = df.copy()
         
-        # 결과를 저장할 사전
-        result = {}
-        
-        # 각 고장 유형별로 처리
-        for fault_type in fault_types:
-            if fault_type not in sensor_data:
-                logger.warning(f"고장 유형 {fault_type}에 대한 데이터가 없습니다.")
-                continue
-            
-            df = sensor_data[fault_type]
-            
-            # 이동 평균 적용
-            processed_df = self.apply_moving_average(df, sensor_columns)
-            
-            # 각 센서 컬럼에 대한 이동 평균 배열 추출
-            sensor_arrays = []
-            for sensor_col in sensor_columns:
-                sensor_array = self.get_ma_columns(processed_df, sensor_col)
-                if len(sensor_array) > 0:
-                    sensor_arrays.append(sensor_array)
-            
-            # 모든 센서 배열 수평 연결 (n행 x m센서)
-            if sensor_arrays:
-                combined_array = np.concatenate(sensor_arrays, axis=1)
-                result[fault_type] = combined_array
-                logger.info(f"고장 유형 {fault_type} 처리 완료: 형태={combined_array.shape}")
+        for column in columns:
+            if column in df.columns:
+                try:
+                    # 롤링 윈도우를 사용한 통계량 계산
+                    # 2차 모멘트 - 표준편차 (변동성)
+                    result_df[f"{column}_std{window_size}"] = df[column].rolling(window=window_size, min_periods=1).std()
+                    
+                    # 3차 모멘트 - 왜도 (비대칭성)
+                    result_df[f"{column}_skew{window_size}"] = df[column].rolling(window=window_size, min_periods=1).skew()
+                    
+                    # 4차 모멘트 - 첨도 (뾰족함)
+                    result_df[f"{column}_kurt{window_size}"] = df[column].rolling(window=window_size, min_periods=1).kurt()
+                    
+                except Exception as e:
+                    logger.error(f"컬럼 {column}에 통계적 모멘트 추출 중 오류 발생: {e}")
             else:
-                logger.warning(f"고장 유형 {fault_type}에 대한 처리된 센서 데이터가 없습니다.")
+                logger.warning(f"컬럼 {column}이 데이터프레임에 존재하지 않습니다.")
         
-        return result
-    
-    def preprocess_data_from_external_api(
-        self, 
-        api_data: pd.DataFrame, 
-        time_column: str = 'timestamp',
-        sensor_columns: List[str] = None,
-        window_size: int = None
-    ) -> Dict[str, np.ndarray]:
-        """
-        외부 API에서 수집한 데이터를 전처리합니다.
-        
-        Args:
-            api_data (pd.DataFrame): API에서 수집한 원본 데이터
-            time_column (str): 시간 정보가 포함된 컬럼명
-            sensor_columns (List[str], optional): 처리할 센서 컬럼 목록
-            window_size (int, optional): 이동 평균 윈도우 크기
-            
-        Returns:
-            Dict[str, np.ndarray]: 전처리된 데이터를 포함하는 사전
-        """
-        if window_size is None:
-            window_size = self.window_size
-        
-        if sensor_columns is None:
-            # 숫자형 컬럼 중 시간 컬럼 제외
-            sensor_columns = api_data.select_dtypes(include=[np.number]).columns.tolist()
-            if time_column in sensor_columns:
-                sensor_columns.remove(time_column)
-        
-        logger.info(f"외부 API 데이터 전처리 시작: 센서={sensor_columns}")
-        
-        # 시간 컬럼이 datetime 형식이면 숫자로 변환 (단위: 초)
-        if pd.api.types.is_datetime64_any_dtype(api_data[time_column]):
-            # 기준 시간 설정 (첫 번째 행의 시간)
-            reference_time = api_data[time_column].min()
-            api_data['time'] = (api_data[time_column] - reference_time).dt.total_seconds()
-        else:
-            # 이미 숫자 형식이면 그대로 사용
-            api_data['time'] = api_data[time_column]
-        
-        # 균일한 시간 간격으로 보간
-        time_range = np.arange(
-            api_data['time'].min(), 
-            api_data['time'].max() + 0.001, 
-            0.001
-        )
-        
-        interpolated_values = []
-        for column in sensor_columns:
-            try:
-                # 보간 함수 생성
-                f_interp = interpolate.interp1d(
-                    api_data['time'], 
-                    api_data[column], 
-                    kind='linear',
-                    bounds_error=False,
-                    fill_value="extrapolate"
-                )
-                
-                # 보간 적용
-                interpolated_values.append(f_interp(time_range))
-                
-            except Exception as e:
-                logger.error(f"센서 {column} 보간 중 오류 발생: {e}")
-                # 오류 발생 시 NaN으로 채운 배열 생성
-                interpolated_values.append(np.full_like(time_range, np.nan, dtype=float))
-        
-        # 보간된 값으로 데이터프레임 생성
-        interpolated_df = pd.DataFrame(
-            np.array(interpolated_values).T, 
-            columns=sensor_columns
-        )
-        interpolated_df['time'] = time_range
-        
-        # 이동 평균 적용
-        processed_df = self.apply_moving_average(interpolated_df, sensor_columns, window_size)
-        
-        # 각 센서 컬럼에 대한 이동 평균 배열 추출
-        sensor_arrays = []
-        for sensor_col in sensor_columns:
-            sensor_array = self.get_ma_columns(processed_df, sensor_col, window_size)
-            if len(sensor_array) > 0:
-                sensor_arrays.append(sensor_array)
-        
-        # 모든 센서 배열 수평 연결 (n행 x m센서)
-        result = {}
-        if sensor_arrays:
-            combined_array = np.concatenate(sensor_arrays, axis=1)
-            result['processed_data'] = combined_array
-            logger.info(f"외부 API 데이터 처리 완료: 형태={combined_array.shape}")
-        
-        return result
-
+        return result_df
 
 # 사용 예시
 if __name__ == "__main__":
@@ -383,7 +359,4 @@ if __name__ == "__main__":
         columns=['normal', 'type1', 'type2', 'type3']
     )
     
-    # 특정 컬럼 추출
-    normal_s1 = preprocessor.get_ma_columns(processed_sensor1, 'normal')
-    
-    print(f"처리된 센서 데이터 형태: {normal_s1.shape}")
+    print(f"처리된 센서 데이터 형태: {processed_sensor1.shape}")

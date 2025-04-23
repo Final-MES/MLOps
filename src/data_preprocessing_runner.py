@@ -9,7 +9,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.data_preprocessing import DataPreprocessor
+from src.data_preprocessing import SensorDataPreprocessor
 
 # 로깅 설정
 logging.basicConfig(
@@ -33,47 +33,50 @@ def prepare_training_data(
     """
     try:
         # 데이터 전처리기 초기화
-        preprocessor = DataPreprocessor(
-            scaling_method='minmax', 
-            imputation_strategy='mean'
+        preprocessor = SensorDataPreprocessor(
+            window_size=15  # 적절한 윈도우 크기 설정
         )
         
         # 데이터 로드
         logger.info(f"데이터 로드: {input_path}")
-        raw_data = preprocessor.load_data(input_path)
+        # 원본 데이터를 적절한 포맷으로 로드
+        import pandas as pd
+        raw_data = pd.read_csv(input_path)
         
-        # 데이터 정제
-        logger.info("데이터 정제 시작")
-        cleaned_data = preprocessor.clean_data(
-            raw_data, 
-            drop_columns=['id', 'timestamp'],  # 필요에 따라 수정
-            fill_na=True
+        # 센서 데이터 형식으로 변환 (단일 센서 데이터 형태로 가정)
+        sensor_data = {'sensor1': raw_data}
+        
+        # 데이터 보간 및 정제
+        logger.info("데이터 보간 및 정제 시작")
+        interpolated_data = preprocessor.interpolate_sensor_data(
+            sensor_data,
+            step=0.001,  # 적절한 시간 간격 설정
+            kind='linear'
         )
         
-        # 데이터 스케일링
-        logger.info("데이터 스케일링")
-        scaled_data = preprocessor.scale_data(
+        # 이동 평균 및 특성 추출
+        cleaned_data = preprocessor.apply_moving_average(
+            interpolated_data['sensor1'],
+            columns=[col for col in interpolated_data['sensor1'].columns if col != 'time'],
+            window_size=15
+        )
+        
+        # 필요하다면 추가 특성 추출
+        enhanced_data = preprocessor.extract_statistical_moments(
             cleaned_data, 
-            target_column=target_column
+            columns=[col for col in cleaned_data.columns if col != 'time' and col != target_column],
+            window_size=100
         )
         
         # 변환된 데이터 저장
         logger.info(f"변환된 데이터 저장: {output_path}")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
-        # 스케일링된 데이터를 CSV로 저장
-        import pandas as pd
-        
-        scaled_df = pd.DataFrame(
-            scaled_data['features'], 
-            columns=scaled_data['feature_columns']
-        )
-        scaled_df[target_column] = scaled_data['target']
-        
-        scaled_df.to_csv(output_path, index=False)
+        # 데이터를 CSV로 저장
+        enhanced_data.to_csv(output_path, index=False)
         
         logger.info("데이터 변환 완료")
-        return scaled_df
+        return enhanced_data
     
     except Exception as e:
         logger.error(f"데이터 변환 중 오류 발생: {e}")
