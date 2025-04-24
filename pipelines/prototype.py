@@ -358,86 +358,94 @@ class MultiSensorLSTMClassifier(nn.Module):
         return out
 
 def prepare_sequence_data(combined_df, sequence_length=50, test_size=0.2, val_size=0.2):
-    """
-    시퀀스 데이터 준비
-    """
-    # 상태 컬럼 제외한 특성 컬럼 선택
-    feature_cols = [col for col in combined_df.columns if col not in ["time", "state", "state_encoded"]]
-    
-    logger.info(f"선택된 특성 컬럼: {feature_cols}")
-    
-    # 데이터 타입 확인 및 변환
-    for col in feature_cols:
-        try:
-            combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce')
-        except Exception as e:
-            logger.error(f"컬럼 {col} 변환 중 오류: {e}")
-    
-    # 특성 및 타겟 분리
-    X = combined_df[feature_cols].values
-    y = combined_df["state_encoded"].values
-    
-    # NaN 값 처리
-    nan_mask = np.isnan(X)
-    if nan_mask.any():
-        logger.warning(f"NaN 값이 {nan_mask.sum()} 개 감지되었습니다. 0으로 대체합니다.")
-        X[nan_mask] = 0
-    
-    # 데이터 스케일링
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    
+    # 각 센서의 측정값 컬럼 정의
+    sensor_cols = {
+        'sensor1': ['sensor1_normal', 'sensor1_type1', 'sensor1_type2', 'sensor1_type3'],
+        'sensor2': ['sensor2_normal', 'sensor2_type1', 'sensor2_type2', 'sensor2_type3'],
+        'sensor3': ['sensor3_normal', 'sensor3_type1', 'sensor3_type2', 'sensor3_type3'],
+        'sensor4': ['sensor4_normal', 'sensor4_type1', 'sensor4_type2', 'sensor4_type3']
+    }
+
+    # 상태 컬럼 선택
+    state_col = 'state_encoded' if 'state_encoded' in combined_df.columns else 'state'
+
+    # 데이터 타입 변환 및 NaN 처리
+    for sensor_measurements in sensor_cols.values():
+        combined_df[sensor_measurements] = combined_df[sensor_measurements].apply(pd.to_numeric, errors='coerce').fillna(0)
+
     # 시퀀스 데이터 생성
     X_sequences = []
     y_sequences = []
-    
-    for i in range(len(X_scaled) - sequence_length + 1):
-        X_sequences.append(X_scaled[i:i + sequence_length])
-        y_sequences.append(y[i + sequence_length - 1])  # 시퀀스의 마지막 시점 상태를 타겟으로 사용
-    
+
+    for i in range(len(combined_df) - sequence_length + 1):
+        # 각 센서의 시퀀스 데이터 추출
+        sensor_sequences = {}
+        for sensor, cols in sensor_cols.items():
+            # 해당 센서의 시퀀스 데이터
+            sensor_sequence = combined_df[cols].iloc[i:i+sequence_length].values
+            sensor_sequences[sensor] = sensor_sequence
+
+        # 각 센서의 마지막 시점의 측정값을 하나의 입력으로 결합
+        X_sequence = np.concatenate([
+            sensor_sequences['sensor1'][-1],
+            sensor_sequences['sensor2'][-1],
+            sensor_sequences['sensor3'][-1],
+            sensor_sequences['sensor4'][-1]
+        ])
+
+        # 상태 레이블 (원-핫 인코딩)
+        state_label = int(combined_df[state_col].iloc[i + sequence_length - 1])
+        
+        X_sequences.append(X_sequence)
+        y_sequences.append(state_label)
+
+    # NumPy 배열로 변환
     X_sequences = np.array(X_sequences, dtype=np.float32)
     y_sequences = np.array(y_sequences, dtype=np.int64)
-    
+
     logger.info(f"시퀀스 데이터 형태: X={X_sequences.shape}, y={y_sequences.shape}")
-    
+
     # 클래스 분포 확인
-    class_counts = np.bincount(y_sequences)
-    logger.info(f"시퀀스 데이터 클래스 분포: {dict(zip(range(len(class_counts)), class_counts))}")
-    
+    unique_classes, class_counts = np.unique(y_sequences, return_counts=True)
+    class_distribution = dict(zip(unique_classes, class_counts))
+    logger.info(f"시퀀스 데이터 클래스 분포: {class_distribution}")
+
+    # 데이터 스케일링
+    scaler = MinMaxScaler()
+    X_scaled = scaler.fit_transform(X_sequences)
+
     # 학습/검증/테스트 데이터 분할
     X_train_val, X_test, y_train_val, y_test = train_test_split(
-        X_sequences, y_sequences, test_size=test_size, shuffle=True, stratify=y_sequences
+        X_scaled, y_sequences, test_size=test_size, stratify=y_sequences
     )
-    
+
     X_train, X_val, y_train, y_val = train_test_split(
-        X_train_val, y_train_val, test_size=val_size, shuffle=True, stratify=y_train_val
+        X_train_val, y_train_val, test_size=val_size, stratify=y_train_val
     )
-    
+
     # 클래스 가중치 계산
-    class_weights = 1. / np.bincount(y_train)
-    class_weights = class_weights / np.sum(class_weights) * len(class_weights)
-    
-    # PyTorch 텐서로 변환
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    logger.info(f"사용 장치: {device}")
-    
+    class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+    class_weights = torch.FloatTensor(class_weights)
+
+    # 데이터 로더 생성
+    device = torch.device('cpu')
+
     X_train_tensor = torch.tensor(X_train, dtype=torch.float32).to(device)
     y_train_tensor = torch.tensor(y_train, dtype=torch.long).to(device)
     X_val_tensor = torch.tensor(X_val, dtype=torch.float32).to(device)
     y_val_tensor = torch.tensor(y_val, dtype=torch.long).to(device)
     X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
     y_test_tensor = torch.tensor(y_test, dtype=torch.long).to(device)
-    
+
     # 데이터 로더 생성
-    batch_size = 32
     train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
     val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
     test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
-    
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-    
+
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+
     # 상태 매핑 정보
     state_mapping = {
         "normal": 0,
@@ -446,12 +454,12 @@ def prepare_sequence_data(combined_df, sequence_length=50, test_size=0.2, val_si
         "type3": 3
     }
     inverse_state_mapping = {v: k for k, v in state_mapping.items()}
-    
+
     # 데이터 정보 저장
     data_info = {
-        'feature_cols': feature_cols,
+        'feature_cols': [col for sensor_cols_list in sensor_cols.values() for col in sensor_cols_list],
         'sequence_length': sequence_length,
-        'input_size': X_train.shape[2],
+        'input_size': X_train.shape[1],
         'num_classes': len(np.unique(y_sequences)),
         'class_mapping': state_mapping,
         'inverse_class_mapping': inverse_state_mapping,
@@ -462,163 +470,8 @@ def prepare_sequence_data(combined_df, sequence_length=50, test_size=0.2, val_si
         'device': device.type,
         'scaler': scaler
     }
-    
-    return train_loader, val_loader, test_loader, data_info
 
-def train_model(train_loader, val_loader, data_info, hidden_size=128, num_layers=2, learning_rate=0.001, epochs=100, patience=10, model_dir="models"):
-    """
-    모델 학습
-    
-    Args:
-        train_loader: 학습 데이터 로더
-        val_loader: 검증 데이터 로더
-        data_info: 데이터 정보
-        hidden_size: LSTM 은닉층 크기
-        num_layers: LSTM 레이어 수
-        learning_rate: 학습률
-        epochs: 학습 에폭 수
-        patience: 조기 종료 인내 횟수
-        model_dir: 모델 저장 디렉토리
-        
-    Returns:
-        tuple: (학습된 모델, 학습 이력)
-    """
-    # 모델 초기화
-    input_size = data_info['input_size']
-    num_classes = data_info['num_classes']
-    device = torch.device(data_info['device'])
-    
-    model = MultiSensorLSTMClassifier(
-        input_size=input_size,
-        hidden_size=hidden_size,
-        num_layers=num_layers,
-        num_classes=num_classes,
-        dropout_rate=0.3
-    ).to(device)
-    
-    logger.info(f"모델 아키텍처: {model}")
-    logger.info(f"모델 파라미터 수: {sum(p.numel() for p in model.parameters())}")
-    
-    # 클래스 가중치 설정 (불균형 데이터 처리)
-    class_weights = torch.tensor(data_info['class_weights'], dtype=torch.float32).to(device)
-    
-    # 손실 함수 및 옵티마이저 설정
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.5, patience=5, verbose=True
-    )
-    
-    # 학습 이력 추적
-    history = {
-        'train_loss': [], 
-        'train_acc': [], 
-        'val_loss': [], 
-        'val_acc': []
-    }
-    
-    # 조기 종료 설정
-    best_val_loss = float('inf')
-    counter = 0
-    
-    # 모델 저장 경로
-    ensure_dir(model_dir)
-    model_path = os.path.join(model_dir, "multi_sensor_model.pth")
-    model_info_path = os.path.join(model_dir, "multi_sensor_model_info.json")
-    
-    # 학습 루프
-    for epoch in range(epochs):
-        # 학습 모드
-        model.train()
-        train_loss = 0.0
-        train_correct = 0
-        train_total = 0
-        
-        for inputs, targets in train_loader:
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, targets)
-            loss.backward()
-            optimizer.step()
-            
-            train_loss += loss.item()
-            _, predicted = torch.max(outputs.data, 1)
-            train_total += targets.size(0)
-            train_correct += (predicted == targets).sum().item()
-        
-        # 에폭당 평균 학습 손실 및 정확도
-        train_loss = train_loss / len(train_loader)
-        train_acc = train_correct / train_total
-        history['train_loss'].append(train_loss)
-        history['train_acc'].append(train_acc)
-        
-        # 검증 모드
-        model.eval()
-        val_loss = 0.0
-        val_correct = 0
-        val_total = 0
-        
-        with torch.no_grad():
-            for inputs, targets in val_loader:
-                outputs = model(inputs)
-                loss = criterion(outputs, targets)
-                
-                val_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)
-                val_total += targets.size(0)
-                val_correct += (predicted == targets).sum().item()
-        
-        val_loss = val_loss / len(val_loader)
-        val_acc = val_correct / val_total
-        history['val_loss'].append(val_loss)
-        history['val_acc'].append(val_acc)
-        
-        # 학습률 조정
-        scheduler.step(val_loss)
-        
-        # 에폭 결과 출력
-        logger.info(f"에폭 {epoch+1}/{epochs}, 학습 손실: {train_loss:.4f}, 학습 정확도: {train_acc:.4f}, "
-                   f"검증 손실: {val_loss:.4f}, 검증 정확도: {val_acc:.4f}")
-        
-        # 조기 종료 확인
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            counter = 0
-            # 최상의 모델 저장
-            torch.save(model.state_dict(), model_path)
-            logger.info(f"새로운 최적 모델 저장: {model_path} (검증 손실: {val_loss:.4f}, 검증 정확도: {val_acc:.4f})")
-        else:
-            counter += 1
-            if counter >= patience:
-                logger.info(f"조기 종료 (에폭 {epoch+1})")
-                break
-    
-    # 학습 완료 후 최적 모델 로드
-    model.load_state_dict(torch.load(model_path))
-    
-    # 모델 정보 저장
-    model_info = {
-        "model_type": "MultiSensorLSTMClassifier",
-        "input_size": input_size,
-        "hidden_size": hidden_size,
-        "num_layers": num_layers,
-        "num_classes": num_classes,
-        "feature_cols": data_info['feature_cols'],
-        "sequence_length": data_info['sequence_length'],
-        "class_mapping": data_info['class_mapping'],
-        "best_val_loss": best_val_loss,
-        "best_val_acc": max(history['val_acc']),
-        "epochs_trained": len(history['train_loss']),
-        "early_stopping_used": counter >= patience,
-        "created_at": datetime.now().isoformat()
-    }
-    
-    with open(model_info_path, 'w') as f:
-        json.dump(model_info, f, indent=2)
-    
-    logger.info(f"모델 정보 저장: {model_info_path}")
-    
-    return model, history
+    return train_loader, val_loader, test_loader, data_info
 
 def evaluate_model(model, test_loader, data_info, plot_dir="plots"):
     """
@@ -939,16 +792,21 @@ def analyze_feature_importance(model, test_loader, data_info, plot_dir="plots"):
 def main():
     """메인 함수"""
     parser = argparse.ArgumentParser(description='다중 센서 데이터를 이용한 상태 분류 모델')
-    parser.add_argument('--data_dir', type=str, default='data/raw', help='원시 데이터 디렉토리')
-    parser.add_argument('--output_dir', type=str, default='data/processed', help='처리된 데이터 저장 디렉토리')
-    parser.add_argument('--model_dir', type=str, default='/app/models', help='모델 저장 디렉토리')
-    parser.add_argument('--plot_dir', type=str, default='/app/plots', help='결과 시각화 저장 디렉토리')
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    
+    parser.add_argument('--data_dir', type=str, default=os.path.join(base_dir, 'data', 'raw'), help='원시 데이터 디렉토리')
+    parser.add_argument('--output_dir', type=str, default=os.path.join(base_dir, 'data', 'processed'), help='처리된 데이터 저장 디렉토리')
+    parser.add_argument('--model_dir', type=str, default=os.path.join(base_dir, 'models'), help='모델 저장 디렉토리')
+    parser.add_argument('--plot_dir', type=str, default=os.path.join(base_dir, 'plots'), help='결과 시각화 저장 디렉토리')
+    
+    # 나머지 인자들은 기존과 동일
     parser.add_argument('--sequence_length', type=int, default=50, help='시퀀스 길이')
     parser.add_argument('--epochs', type=int, default=100, help='학습 에폭 수')
     parser.add_argument('--hidden_size', type=int, default=128, help='LSTM 은닉층 크기')
     parser.add_argument('--mode', type=str, choices=['train', 'evaluate', 'analyze'], default='train', help='실행 모드')
     parser.add_argument('--save_data', action='store_true', help='처리된 데이터 저장 여부')
     parser.add_argument('--interp_step', type=float, default=0.001, help='보간 간격 (초 단위)')
+    
     args = parser.parse_args()
     
     # 필요한 디렉토리 생성
