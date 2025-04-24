@@ -295,8 +295,8 @@ def train_model(train_data, valid_data, args):
 
     # 데이터 로더 생성
     train_dataset = TensorDataset(
-        torch.from_numpy(X_train[:50000]).to(device), 
-        torch.from_numpy(y_train[:50000]).to(device)
+        torch.from_numpy(X_train).to(device), 
+        torch.from_numpy(y_train).to(device)
     )
     valid_dataset = TensorDataset(
         torch.from_numpy(X_valid).to(device), 
@@ -320,7 +320,7 @@ def train_model(train_data, valid_data, args):
     
     # 손실 함수 및 옵티마이저
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.RAdam(model.parameters(), lr=1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=5, verbose=True
     )
@@ -534,10 +534,10 @@ def main():
     parser.add_argument('--plot_dir', type=str, default=os.path.join(base_dir, 'plots'), help='결과 시각화 저장 디렉토리')
 
     # 나머지 인자들은 기존과 동일
-    parser.add_argument('--sequence_length', type=int, default=15, help='시퀀스 길이')
+    parser.add_argument('--sequence_length', type=int, default=50, help='시퀀스 길이')
     parser.add_argument('--epochs', type=int, default=100, help='학습 에폭 수')
-    parser.add_argument('--hidden_size', type=int, default=64, help='LSTM 은닉층 크기')
-    parser.add_argument('--num_layers', type=int, default=2, help='LSTM 레이어 수')
+    parser.add_argument('--hidden_size', type=int, default=50, help='LSTM 은닉층 크기')
+    parser.add_argument('--num_layers', type=int, default=1, help='LSTM 레이어 수')
     parser.add_argument('--save_data', action='store_true', help='처리된 데이터 저장 여부')
     parser.add_argument('--interp_step', type=float, default=0.001, help='보간 간격 (초 단위)')
 
