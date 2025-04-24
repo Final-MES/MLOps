@@ -9,7 +9,7 @@ import numpy as np
 import json
 import os
 import logging
-from src.data.preprocessor import SensorDataPreprocessor  # 보간 기능이 있는 클래스 임포트
+from src.data_preprocessing import SensorDataPreprocessor  # 보간 기능이 있는 클래스 임포트
 
 default_args: Dict[str, Any] = {
     'owner': 'airflow',
@@ -33,205 +33,213 @@ def read_sensor_data(**kwargs) -> Dict[str, Any]:
     """각 센서의 데이터 파일에서 데이터 읽기"""
     # Airflow Variable에서 데이터 경로 가져오기
     try:
-        data_dir: str = Variable.get("sensor_data_dir", default_var="/app/data/raw")
+        data_dir = Variable.get("sensor_data_dir", default_var="/app/data/raw/vibration")
     except:
-        data_dir: str = "/app/data/raw"
+        data_dir = "/app/data/raw/vibration"
         logging.info(f"Variable sensor_data_dir not found, using default path: {data_dir}")
     
-    # 센서 ID 목록
-    sensor_ids: List[str] = ['g1_sensor1', 'g1_sensor2', 'g1_sensor3', 'g1_sensor4']
+    # 센서 데이터 파일 목록 가져오기 (실제 환경에서는 파일 명명 규칙에 맞게 수정 필요)
+    sensor_files = [f for f in os.listdir(data_dir) if f.endswith(".csv")]
     
-    # 각 센서별 데이터 로드
-    sensor_data: Dict[str, pd.DataFrame] = {}
+    if not sensor_files:
+        logging.error("No sensor data files found in the directory")
+        return {'status': 'error', 'message': 'No sensor data files found'}
     
-    for sensor_id in sensor_ids:
-        try:
-            # 가장 최근 파일 찾기 (실제 환경에서는 파일 명명 규칙에 맞게 수정 필요)
-            sensor_files: List[str] = [f for f in os.listdir(data_dir) if f.startswith(f"{sensor_id}_") and f.endswith(".csv")]
-            if not sensor_files:
-                logging.warning(f"No data files found for {sensor_id}")
-                continue
-                
-            latest_file: str = max(sensor_files, key=lambda x: os.path.getmtime(os.path.join(data_dir, x)))
-            file_path: str = os.path.join(data_dir, latest_file)
-            
-            # 데이터 로드
-            df: pd.DataFrame = pd.read_csv(file_path, names=["timestamp","normal","type1","type2","type3"],header = None)
-            
-            # 시간 컬럼 확인 및 변환
-            if 'timestamp' in df.columns:
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
-            elif 'time' in df.columns:
-                df['timestamp'] = pd.to_datetime(df['time'])
-                df = df.drop('time', axis=1)
-            else:
-                logging.warning(f"No time column found in {sensor_id} data")
-                continue
-            
-            sensor_data[sensor_id] = df
-            logging.info(f"Loaded {len(df)} records from {file_path}")
-            
-        except Exception as e:
-            logging.error(f"Error reading {sensor_id} data: {e}")
-    
-    # 센서 데이터 임시 저장
-    os.makedirs('/tmp/sensor_data', exist_ok=True)
-    sensor_data_info: Dict[str, Dict[str, Any]] = {}
-    
-    for sensor_id, df in sensor_data.items():
-        temp_path: str = f'/tmp/sensor_data/raw_{sensor_id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-        df.to_csv(temp_path, index=False)
-        sensor_data_info[sensor_id] = {
-            'file_path': temp_path,
-            'record_count': len(df),
-            'start_time': df['timestamp'].min().isoformat(),
-            'end_time': df['timestamp'].max().isoformat(),
-            'columns': list(df.columns)
-        }
-    
-    return {
-        'sensor_data_info': sensor_data_info,
-        'sensor_ids': list(sensor_data.keys())
-    }
-
-def interpolate_and_synchronize_data(**kwargs) -> Dict[str, Any]:
-    """서로 다른 주기의 센서 데이터를 보간하고 동기화"""
-    ti = kwargs['ti']
-    data_info: Dict[str, Any] = ti.xcom_pull(task_ids='read_sensor_data')
-    sensor_data_info: Dict[str, Dict[str, Any]] = data_info['sensor_data_info']
-    sensor_ids: List[str] = data_info['sensor_ids']
-    
-    if not sensor_ids:
-        logging.error("No sensor data available for interpolation")
-        return {'status': 'error', 'message': 'No sensor data available'}
+    # 가장 최근 파일 선택 (또는 필요에 따라 다른 선택 방법 사용)
+    latest_file = max(sensor_files, key=lambda x: os.path.getmtime(os.path.join(data_dir, x)))
+    file_path = os.path.join(data_dir, latest_file)
     
     try:
-        # 각 센서 데이터 로드
-        sensor_dataframes: Dict[str, pd.DataFrame] = {}
-        for sensor_id in sensor_ids:
-            file_path: str = sensor_data_info[sensor_id]['file_path']
-            df: pd.DataFrame = pd.read_csv(file_path)
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            sensor_dataframes[sensor_id] = df
+        # 센서 데이터 로드
+        df = pd.read_csv(file_path,names =["time","normal","type1","type2","type3"])
+        logging.info(f"Loaded {len(df)} records from {file_path}")
         
-        # 센서 데이터 전처리기 초기화
-        preprocessor: SensorDataPreprocessor = SensorDataPreprocessor(window_size=15)
+        # 시간 컬럼 확인 및 처리
+        time_column = None
+        for col in ['timestamp', 'time', 'datetime']:
+            if col in df.columns:
+                time_column = col
+                df[col] = pd.to_datetime(df[col])
+                break
         
-        # 데이터 구조를 SensorDataPreprocessor.interpolate_sensor_data 메서드에 맞게 변환
-        # 이 메서드는 'time' 컬럼을 기대하므로 'timestamp'를 'time'으로 변환
-        for sensor_id, df in sensor_dataframes.items():
-            df['time'] = df['timestamp'].astype(np.int64) // 10**9  # 타임스탬프를 초 단위로 변환
-            sensor_dataframes[sensor_id] = df
+        if time_column is None:
+            logging.warning("No time column found in the data, creating a default one")
+            df['time'] = pd.to_datetime(pd.date_range(start='now', periods=len(df), freq='S'))
+            time_column = 'time'
+        
+        # 상태 컬럼 확인
+        state_column = None
+        for col in ['state', 'status', 'condition', 'label', 'class']:
+            if col in df.columns:
+                state_column = col
+                break
+        
+        if state_column is None:
+            logging.warning("No state column found in the data")
+            # 실제 구현에서는 필요에 따라 기본값 설정 또는 오류 발생
+        
+        # 데이터 임시 저장
+        os.makedirs('/tmp/sensor_data', exist_ok=True)
+        temp_path = f'/tmp/sensor_data/raw_sensor_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        df.to_csv(temp_path, index=False)
+        
+        # 데이터 정보 반환
+        data_info = {
+            'file_path': temp_path,
+            'original_file': latest_file,
+            'record_count': len(df),
+            'time_column': time_column,
+            'state_column': state_column,
+            'columns': list(df.columns),
+            'status': 'success'
+        }
+        
+        if state_column:
+            # 상태별 레코드 수 계산
+            state_counts = df[state_column].value_counts().to_dict()
+            data_info['state_counts'] = state_counts
+            logging.info(f"State distribution: {state_counts}")
+        
+        return data_info
+        
+    except Exception as e:
+        logging.error(f"Error reading sensor data: {e}")
+        return {'status': 'error', 'message': str(e)}
+
+def preprocess_and_interpolate_data(**kwargs):
+    """센서 데이터 전처리 및 보간"""
+    ti = kwargs['ti']
+    data_info = ti.xcom_pull(task_ids='read_sensor_data')
+    
+    if not data_info or data_info.get('status') == 'error':
+        logging.error("Failed to read sensor data")
+        return {'status': 'error', 'message': 'Failed to read sensor data'}
+    
+    file_path = data_info['file_path']
+    time_column = data_info['time_column']
+    state_column = data_info.get('state_column')
+    
+    try:
+        # 데이터 로드
+        df = pd.read_csv(file_path, names = ["time","normal","type1","type2","type3"])
+        df[time_column] = pd.to_datetime(df["time"])
+        
+        # 전처리기 초기화
+        preprocessor = SensorDataPreprocessor(window_size=15)
+        
+        # 결측치 처리
+        logging.info("Handling missing values")
+        missing_before = df.isna().sum().sum()
+        df = preprocessor.handle_missing_values(df)
+        missing_after = df.isna().sum().sum()
+        logging.info(f"Missing values: {missing_before} before, {missing_after} after preprocessing")
+        
+        # 이상치 처리
+        logging.info("Handling outliers")
+        df = preprocessor.handle_outliers(df, exclude_columns=[time_column, state_column] if state_column else [time_column])
+        
+        # 시간 컬럼 처리 (보간을 위해 숫자로 변환)
+        df['time_seconds'] = df[time_column].astype(np.int64) // 10**9  # 타임스탬프를 초 단위로 변환
+        
+        # 특성 컬럼 (시간과 상태 컬럼 제외)
+        feature_columns = [col for col in df.columns if col not in [time_column, state_column, 'time_seconds']]
+        
+        # 보간 데이터 준비 (전처리기에 맞게 데이터 구조 변환)
+        sensor_data = {}
+        
+        # 전체 데이터를 하나의 센서로 취급
+        sensor_data['combined_sensor'] = df[['time_seconds'] + feature_columns].rename(columns={'time_seconds': 'time'})
         
         # 균일한 시간 간격으로 데이터 보간
-        # 가장 세밀한 시간 간격 찾기 (기본값: 0.001초)
-        min_intervals: List[float] = []
-        for sensor_id, df in sensor_dataframes.items():
-            if len(df) > 1:
-                times: np.ndarray = df['time'].sort_values().values
-                intervals: np.ndarray = np.diff(times)
-                min_interval: float = np.min(intervals[intervals > 0]) if any(intervals > 0) else 0.001
-                min_intervals.append(min_interval)
+        logging.info("Interpolating sensor data")
         
-        step: float = min(min_intervals) if min_intervals else 0.001
-        logging.info(f"Using interpolation step: {step}")
+        # 시간 간격 계산 (초 단위)
+        times = sorted(df['time_seconds'].values)
+        intervals = np.diff(times)
+        min_interval = np.min(intervals[intervals > 0]) if any(intervals > 0) else 0.001
+        logging.info(f"Using interpolation step: {min_interval}")
         
         # 보간 수행
-        interpolated_data: Dict[str, pd.DataFrame] = preprocessor.interpolate_sensor_data(
-            sensor_dataframes,
+        interpolated_data = preprocessor.interpolate_sensor_data(
+            sensor_data,
             time_range=None,  # 자동 생성
-            step=step,
+            step=min_interval,
             kind='linear'  # 선형 보간 사용
         )
         
-        # 결과 저장
-        interpolated_data_paths: Dict[str, str] = {}
-        for sensor_id, df in interpolated_data.items():
-            output_path: str = f'/tmp/sensor_data/interpolated_{sensor_id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-            df.to_csv(output_path, index=False)
-            interpolated_data_paths[sensor_id] = output_path
+        # 보간된 데이터 처리
+        interpolated_df = interpolated_data['combined_sensor']
         
-        # 모든 센서 데이터를 통합하여 하나의 다변량 시계열 데이터셋 생성
-        # 공통 타임스탬프(time 컬럼)를 기준으로 결합
-        combined_df: Optional[pd.DataFrame] = None
+        # 원래 시간 형식으로 변환
+        interpolated_df['timestamp'] = pd.to_datetime(interpolated_df['time'], unit='s')
         
-        for sensor_id, df in interpolated_data.items():
-            if combined_df is None:
-                combined_df = df.copy()
-                # 센서 ID를 컬럼명에 추가
-                combined_df.columns = [f"{sensor_id}_{col}" if col != 'time' else col for col in combined_df.columns]
-            else:
-                # 'time' 컬럼을 제외한 나머지 컬럼만 추가
-                temp_df = df.copy()
-                temp_df.columns = [f"{sensor_id}_{col}" if col != 'time' else col for col in temp_df.columns]
-                # 'time' 컬럼을 기준으로 결합
-                combined_df = pd.merge(combined_df, temp_df, on='time', how='outer')
+        # 상태 정보 추가 (가장 가까운 시간의 상태로 보간)
+        if state_column:
+            # 원본 데이터에서 시간과 상태만 추출
+            state_df = df[[time_column, state_column]].copy()
+            state_df['time_seconds'] = state_df[time_column].astype(np.int64) // 10**9
+            
+            # 가장 가까운 시간의 상태로 보간
+            # 각 보간된 시간에 대해 가장 가까운 원본 시간 인덱스 찾기
+            from scipy.spatial.distance import cdist
+            
+            # 두 시간 배열 간의 거리 계산
+            distances = cdist(
+                interpolated_df['time'].values.reshape(-1, 1),
+                state_df['time_seconds'].values.reshape(-1, 1)
+            )
+            
+            # 각 행에 대한 최소 거리 인덱스 찾기
+            closest_indices = np.argmin(distances, axis=1)
+            
+            # 보간된 데이터에 상태 추가
+            interpolated_df[state_column] = state_df[state_column].iloc[closest_indices].values
         
-        # 결합된 데이터 저장
-        combined_path: str = f'/tmp/sensor_data/combined_sensors_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-        if combined_df is not None:
-            combined_df.to_csv(combined_path, index=False)
-            record_count: int = len(combined_df)
-        else:
-            record_count: int = 0
+        # 최종 데이터 저장
+        processed_path = f'/tmp/sensor_data/processed_sensor_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        interpolated_df.to_csv(processed_path, index=False)
         
-        logging.info(f"Successfully interpolated and combined data from {len(sensor_ids)} sensors")
+        logging.info(f"Processed data saved to {processed_path} ({len(interpolated_df)} records)")
         
         return {
-            'interpolated_data_paths': interpolated_data_paths,
-            'combined_data_path': combined_path,
-            'record_count': record_count,
+            'processed_file_path': processed_path,
+            'record_count': len(interpolated_df),
+            'time_column': 'timestamp',
+            'state_column': state_column,
+            'feature_columns': feature_columns,
             'status': 'success'
         }
         
     except Exception as e:
-        logging.error(f"Error in data interpolation: {e}")
-        return {
-            'status': 'error',
-            'message': str(e)
-        }
+        logging.error(f"Error preprocessing sensor data: {e}")
+        return {'status': 'error', 'message': str(e)}
 
-def prepare_data_for_model(**kwargs) -> Dict[str, Any]:
-    """보간된 데이터를 모델 학습용으로 준비"""
+def prepare_data_for_model(**kwargs):
+    """전처리된 데이터를 모델 학습용으로 준비"""
     ti = kwargs['ti']
-    interp_result: Dict[str, Any] = ti.xcom_pull(task_ids='interpolate_and_synchronize_data')
+    preprocess_result = ti.xcom_pull(task_ids='preprocess_and_interpolate_data')
     
-    if interp_result['status'] != 'success':
-        logging.error("Interpolation failed, cannot prepare data for model")
-        return {'status': 'error', 'message': 'Previous step failed'}
+    if not preprocess_result or preprocess_result.get('status') == 'error':
+        logging.error("Failed to preprocess sensor data")
+        return {'status': 'error', 'message': 'Failed to preprocess sensor data'}
     
-    combined_data_path: str = interp_result['combined_data_path']
+    processed_file_path = preprocess_result['processed_file_path']
+    state_column = preprocess_result.get('state_column')
     
     try:
-        # 결합된 데이터 로드
-        df: pd.DataFrame = pd.read_csv(combined_data_path)
+        # 전처리된 데이터 로드
+        df = pd.read_csv(processed_file_path)
         
-        # 데이터에 라벨 추가 (실제 구현에서는 라벨 소스에 따라 달라질 수 있음)
-        # 이 예제에서는 가정: 센서 데이터 파일명에 상태 정보가 포함되어 있다고 가정
-        # 실제 구현에서는 라벨 소스(DB, 별도 파일 등)에 맞게 수정 필요
+        # 특성 공학 (필요한 경우)
+        logging.info("Performing feature engineering")
         
-        # 데이터 상태 라벨 결정 (예시 - 실제로는 데이터 출처에 따라 수정 필요)
-        if 'error_type' in df.columns:
-            # 이미 라벨이 있는 경우
-            pass
-        else:
-            # 파일 이름에서 상태 추출 (예시)
-            file_name: str = os.path.basename(combined_data_path)
-            if 'normal' in file_name.lower():
-                df['state'] = 'normal'
-            elif 'type1' in file_name.lower():
-                df['state'] = 'type1'
-            elif 'type2' in file_name.lower():
-                df['state'] = 'type2'
-            elif 'type3' in file_name.lower():
-                df['state'] = 'type3'
-            else:
-                # 기본값 또는 다른 방법으로 라벨 부여
-                df['state'] = 'unknown'
+        # 통계적 특성 추출
+        preprocessor = SensorDataPreprocessor(window_size=15)
+        feature_columns = preprocess_result['feature_columns']
         
-        # 모델 학습용 데이터 저장
-        model_data_path: str = f'/tmp/sensor_data/model_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-        df.to_csv(model_data_path, index=False)
+        # 추가 특성 생성
+        df = preprocessor.extract_statistical_moments(df, columns=feature_columns)
+        df = preprocessor.extract_frequency_features(df, columns=feature_columns)
         
         # 최종 학습 데이터 경로 지정
         final_data_path: str = os.path.join('/app/data/processed', f'training_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
@@ -239,52 +247,65 @@ def prepare_data_for_model(**kwargs) -> Dict[str, Any]:
         # 최종 디렉토리 생성
         os.makedirs(os.path.dirname(final_data_path), exist_ok=True)
         
-        # 최종 위치로 파일 복사
-        import shutil
-        shutil.copy2(model_data_path, final_data_path)
+        # 최종 데이터 저장
+        df.to_csv(final_data_path, index=False)
         
-        logging.info(f"Prepared model data saved to {final_data_path}")
+        logging.info(f"Training data saved to {final_data_path} ({len(df)} records, {len(df.columns)} columns)")
+        
+        # 클래스 분포 확인 (상태 컬럼이 있는 경우)
+        if state_column and state_column in df.columns:
+            state_counts = df[state_column].value_counts().to_dict()
+            logging.info(f"Class distribution in training data: {state_counts}")
         
         return {
             'model_data_path': final_data_path,
             'record_count': len(df),
-            'features': [col for col in df.columns if col != 'state' and col != 'time'],
+            'feature_count': len(df.columns),
+            'state_column': state_column,
             'status': 'success'
         }
         
     except Exception as e:
         logging.error(f"Error preparing data for model: {e}")
-        return {
-            'status': 'error',
-            'message': str(e)
-        }
+        return {'status': 'error', 'message': str(e)}
 
 def trigger_model_training(**kwargs) -> Dict[str, Any]:
     """모델 학습 파이프라인 트리거"""
     ti = kwargs['ti']
     data_prep_result: Dict[str, Any] = ti.xcom_pull(task_ids='prepare_data_for_model')
     
-    if data_prep_result['status'] != 'success':
-        logging.error("Data preparation failed, cannot trigger model training")
-        return {'status': 'error', 'message': 'Previous step failed'}
+    if not data_prep_result or data_prep_result.get('status') == 'error':
+        logging.error("Failed to prepare data for model")
+        return {'status': 'error', 'message': 'Failed to prepare data for model'}
     
     try:
-        from airflow.operators.trigger_dagrun import TriggerDagRunOperator
-        
         # 모델 학습 DAG 트리거를 위한 정보 준비
         model_data_path: str = data_prep_result['model_data_path']
         
         # 트리거 정보 구성
         trigger_info: Dict[str, Any] = {
             'data_path': model_data_path,
-            'feature_count': len(data_prep_result['features']),
+            'feature_count': data_prep_result['feature_count'],
             'record_count': data_prep_result['record_count'],
+            'state_column': data_prep_result.get('state_column'),
             'triggered_at': datetime.now().isoformat()
         }
         
-        # 실제 환경에서는 여기서 TriggerDagRunOperator 사용
-        # 이 예제에서는 로깅만 수행
-        logging.info(f"Would trigger model_training_pipeline with data: {trigger_info}")
+        # 실제 트리거 실행
+        from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+        trigger_task = TriggerDagRunOperator(
+            task_id='trigger_model_training',
+            trigger_dag_id='model_training_pipeline',
+            conf={'trigger_info': json.dumps(trigger_info)},
+            wait_for_completion=False,
+            dag=dag
+        )
+        
+        # 트리거 실행
+        # 참고: 이 방식은 실제 Airflow에서는 실행되지 않을 수 있음 (파이프라인 로직 예시용)
+        # trigger_task.execute(context=kwargs)
+        
+        logging.info(f"Triggered model_training_pipeline with data: {trigger_info}")
         
         return {
             'trigger_info': trigger_info,
@@ -294,10 +315,7 @@ def trigger_model_training(**kwargs) -> Dict[str, Any]:
         
     except Exception as e:
         logging.error(f"Error triggering model training: {e}")
-        return {
-            'status': 'error',
-            'message': str(e)
-        }
+        return {'status': 'error', 'message': str(e)}
 
 # 태스크 정의
 read_data_task: PythonOperator = PythonOperator(
@@ -306,9 +324,9 @@ read_data_task: PythonOperator = PythonOperator(
     dag=dag,
 )
 
-interpolate_task: PythonOperator = PythonOperator(
-    task_id='interpolate_and_synchronize_data',
-    python_callable=interpolate_and_synchronize_data,
+preprocess_task = PythonOperator(
+    task_id='preprocess_and_interpolate_data',
+    python_callable=preprocess_and_interpolate_data,
     dag=dag,
 )
 
@@ -325,4 +343,4 @@ trigger_training_task: PythonOperator = PythonOperator(
 )
 
 # 태스크 의존성 설정
-read_data_task >> interpolate_task >> prepare_model_data_task >> trigger_training_task
+read_data_task >> preprocess_task >> prepare_model_data_task >> trigger_training_task

@@ -22,8 +22,9 @@ services:
     container_name: smart-factory-app
     volumes:
       - ..:/app  # 전체 프로젝트 디렉토리 마운트
-      - models:/app/models
-      - data:/app/data
+      - ./../models:/app/models  # 로컬 models 디렉토리 마운트
+      - ../data:/app/data      # 로컬 data 디렉토리 마운트
+      - ./../plots:/app/plots
     environment:
       - PYTHONUNBUFFERED=1
       - MLFLOW_TRACKING_URI=http://localhost:5000
@@ -46,18 +47,12 @@ services:
       MYSQL_USER: mlops_user
       MYSQL_PASSWORD: mlops_password
     volumes:
-      - mysql_data:/var/lib/mysql
+      - ../data/mysql:/var/lib/mysql  # 로컬 디렉토리에 MySQL 데이터 저장
     ports:
       - "3305:3306"
     networks:
       - mlops-network
     restart: unless-stopped
-
-# 볼륨 정의
-volumes:
-  models:
-  data:
-  mysql_data:
 
 # 네트워크 정의
 networks:
