@@ -139,6 +139,22 @@ class SensorDataProcessor:
         Returns:
             dict: 보간된 센서 데이터
         """
+        total_states = {
+        'normal': 0, 'type1': 0, 'type2': 0, 'type3': 0
+    }
+        sensor_count = len(sensor_data)
+    
+        for sensor_id, df in sensor_data.items():
+            state_counts = df[['normal', 'type1', 'type2', 'type3']].sum()
+        for state, count in state_counts.items():
+            total_states[state] += count
+    
+    # 평균 상태 분포 계산
+        for state in total_states:
+            total_states[state] /= sensor_count
+    
+        logger.info("통합 상태 분포:")
+        logger.info(total_states)
         if not sensor_data:
             logger.error("보간할 센서 데이터가 없습니다.")
             return {}
@@ -344,22 +360,28 @@ class MultiSensorLSTMClassifier(nn.Module):
 def prepare_sequence_data(combined_df, sequence_length=50, test_size=0.2, val_size=0.2):
     """
     시퀀스 데이터 준비
-    
-    Args:
-        combined_df: 결합된 센서 데이터
-        sequence_length: 시퀀스 길이
-        test_size: 테스트 데이터 비율
-        val_size: 검증 데이터 비율
-        
-    Returns:
-        tuple: (train_loader, val_loader, test_loader, data_info)
     """
-    # 시간 컬럼 제외, 측정값만 포함하는 특성 컬럼 선택
+    # 상태 컬럼 제외한 특성 컬럼 선택
     feature_cols = [col for col in combined_df.columns if col not in ["time", "state", "state_encoded"]]
+    
+    logger.info(f"선택된 특성 컬럼: {feature_cols}")
+    
+    # 데이터 타입 확인 및 변환
+    for col in feature_cols:
+        try:
+            combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce')
+        except Exception as e:
+            logger.error(f"컬럼 {col} 변환 중 오류: {e}")
     
     # 특성 및 타겟 분리
     X = combined_df[feature_cols].values
     y = combined_df["state_encoded"].values
+    
+    # NaN 값 처리
+    nan_mask = np.isnan(X)
+    if nan_mask.any():
+        logger.warning(f"NaN 값이 {nan_mask.sum()} 개 감지되었습니다. 0으로 대체합니다.")
+        X[nan_mask] = 0
     
     # 데이터 스케일링
     scaler = StandardScaler()
@@ -380,7 +402,7 @@ def prepare_sequence_data(combined_df, sequence_length=50, test_size=0.2, val_si
     
     # 클래스 분포 확인
     class_counts = np.bincount(y_sequences)
-    logger.info(f"시퀀스 데이터 클래스 분포: {class_counts}")
+    logger.info(f"시퀀스 데이터 클래스 분포: {dict(zip(range(len(class_counts)), class_counts))}")
     
     # 학습/검증/테스트 데이터 분할
     X_train_val, X_test, y_train_val, y_test = train_test_split(
@@ -391,16 +413,9 @@ def prepare_sequence_data(combined_df, sequence_length=50, test_size=0.2, val_si
         X_train_val, y_train_val, test_size=val_size, shuffle=True, stratify=y_train_val
     )
     
-    logger.info(f"학습 데이터: {X_train.shape}")
-    logger.info(f"검증 데이터: {X_val.shape}")
-    logger.info(f"테스트 데이터: {X_test.shape}")
-    
-    # 클래스 가중치 계산 (불균형 처리)
-    if len(np.unique(y_train)) > 1:  # 클래스가 2개 이상인 경우에만 계산
-        class_weights = 1. / np.bincount(y_train)
-        class_weights = class_weights / np.sum(class_weights) * len(class_weights)
-    else:
-        class_weights = np.array([1.0])  # 단일 클래스인 경우 가중치 1로 설정
+    # 클래스 가중치 계산
+    class_weights = 1. / np.bincount(y_train)
+    class_weights = class_weights / np.sum(class_weights) * len(class_weights)
     
     # PyTorch 텐서로 변환
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -884,6 +899,7 @@ def analyze_feature_importance(model, test_loader, data_info, plot_dir="plots"):
     plt.grid(axis='x', linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.savefig(os.path.join(plot_dir, 'sensor_importance.png'))
+    plt.show()
     plt.close()
     
     # 측정값 유형별 중요도 시각화
@@ -903,6 +919,7 @@ def analyze_feature_importance(model, test_loader, data_info, plot_dir="plots"):
     plt.grid(axis='x', linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.savefig(os.path.join(plot_dir, 'measurement_importance.png'))
+    plt.show()
     plt.close()
     
     # 특성 중요도 결과 저장
@@ -924,8 +941,8 @@ def main():
     parser = argparse.ArgumentParser(description='다중 센서 데이터를 이용한 상태 분류 모델')
     parser.add_argument('--data_dir', type=str, default='data/raw', help='원시 데이터 디렉토리')
     parser.add_argument('--output_dir', type=str, default='data/processed', help='처리된 데이터 저장 디렉토리')
-    parser.add_argument('--model_dir', type=str, default='models', help='모델 저장 디렉토리')
-    parser.add_argument('--plot_dir', type=str, default='plots', help='결과 시각화 저장 디렉토리')
+    parser.add_argument('--model_dir', type=str, default='/app/models', help='모델 저장 디렉토리')
+    parser.add_argument('--plot_dir', type=str, default='/app/plots', help='결과 시각화 저장 디렉토리')
     parser.add_argument('--sequence_length', type=int, default=50, help='시퀀스 길이')
     parser.add_argument('--epochs', type=int, default=100, help='학습 에폭 수')
     parser.add_argument('--hidden_size', type=int, default=128, help='LSTM 은닉층 크기')

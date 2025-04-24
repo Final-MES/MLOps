@@ -22,8 +22,9 @@ services:
     container_name: smart-factory-app
     volumes:
       - ..:/app  # 전체 프로젝트 디렉토리 마운트
-      - ../models:/app/models  # 로컬 models 디렉토리 마운트
+      - ./../models:/app/models  # 로컬 models 디렉토리 마운트
       - ../data:/app/data      # 로컬 data 디렉토리 마운트
+      - ./../plots:/app/plots
     environment:
       - PYTHONUNBUFFERED=1
       - MLFLOW_TRACKING_URI=http://localhost:5000
