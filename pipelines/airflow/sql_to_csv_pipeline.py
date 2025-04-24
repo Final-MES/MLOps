@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.hooks.mysql_hook import MySqlHook
@@ -6,7 +7,7 @@ import pandas as pd
 import os
 import logging
 
-default_args = {
+default_args: Dict[str, Any] = {
     'owner': 'airflow',
     'depends_on_past': False,
     'start_date': datetime(2025, 4, 19),
@@ -16,7 +17,7 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
-dag = DAG(
+dag: DAG = DAG(
     'sql_to_csv_pipeline',
     default_args=default_args,
     description='MySQL 데이터를 CSV로 추출하는 파이프라인',
@@ -24,30 +25,30 @@ dag = DAG(
     catchup=False,
 )
 
-def extract_data_from_mysql(**kwargs):
+def extract_data_from_mysql(**kwargs) -> Dict[str, Any]:
     """MySQL 데이터베이스에서 데이터 추출"""
     try:
         # 추출할 테이블 이름
-        table_name = kwargs.get('table_name', 'sensor_data')
+        table_name: str = kwargs.get('table_name', 'sensor_data')
         
         # MySQL 연결 (Airflow UI에서 connection 설정 필요)
-        mysql_hook = MySqlHook(mysql_conn_id='mysql_connection')
+        mysql_hook: MySqlHook = MySqlHook(mysql_conn_id='mysql_connection')
         
         # 쿼리 실행
-        query = f"SELECT * FROM {table_name}"
+        query: str = f"SELECT * FROM {table_name}"
         
         # 데이터를 DataFrame으로 로드
-        df = mysql_hook.get_pandas_df(query)
+        df: pd.DataFrame = mysql_hook.get_pandas_df(query)
         
         logging.info(f"추출된 데이터 행 수: {len(df)}")
         
         # 저장 디렉토리 생성
-        output_dir = '/tmp/extracted_data'
+        output_dir: str = '/tmp/extracted_data'
         os.makedirs(output_dir, exist_ok=True)
         
         # 현재 날짜/시간을 파일명에 포함
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        csv_file_path = f"{output_dir}/{table_name}_{timestamp}.csv"
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_file_path: str = f"{output_dir}/{table_name}_{timestamp}.csv"
         
         # CSV로 저장
         df.to_csv(csv_file_path, index=False)
@@ -64,16 +65,16 @@ def extract_data_from_mysql(**kwargs):
         logging.error(f"데이터 추출 중 오류 발생: {e}")
         raise
 
-def process_extracted_csv(**kwargs):
+def process_extracted_csv(**kwargs) -> Dict[str, Any]:
     """추출된 CSV 파일 처리 (필요에 따라 추가 처리)"""
     ti = kwargs['ti']
-    extract_result = ti.xcom_pull(task_ids='extract_data_from_mysql')
+    extract_result: Dict[str, Any] = ti.xcom_pull(task_ids='extract_data_from_mysql')
     
-    file_path = extract_result['file_path']
+    file_path: str = extract_result['file_path']
     
     try:
         # CSV 파일 읽기
-        df = pd.read_csv(file_path)
+        df: pd.DataFrame = pd.read_csv(file_path)
         
         # 데이터 기본 정보 출력
         logging.info(f"CSV 데이터 정보:")
@@ -85,7 +86,7 @@ def process_extracted_csv(**kwargs):
         # logging.info(f"데이터 요약 통계:\n{df.describe()}")
         
         # 최종 CSV 파일 경로 (처리 후 파일을 별도로 저장하려면 여기서 수정)
-        final_csv_path = file_path
+        final_csv_path: str = file_path
         
         return {
             'processed_file_path': final_csv_path,
@@ -97,7 +98,7 @@ def process_extracted_csv(**kwargs):
         raise
 
 # 다양한 테이블에 대해 작업을 생성할 수 있도록 함수 정의
-def create_extract_task(table_name):
+def create_extract_task(table_name: str) -> PythonOperator:
     return PythonOperator(
         task_id=f'extract_{table_name}_from_mysql',
         python_callable=extract_data_from_mysql,
@@ -107,10 +108,10 @@ def create_extract_task(table_name):
 
 # 각 테이블에 대한 추출 태스크 정의
 # 여러 테이블을 처리하려면 이 목록을 수정
-tables_to_extract = ['sensor_data', 'equipment_data', 'quality_data']
+tables_to_extract: List[str] = ['sensor_data', 'equipment_data', 'quality_data']
 
-extract_tasks = {}
-process_tasks = {}
+extract_tasks: Dict[str, PythonOperator] = {}
+process_tasks: Dict[str, PythonOperator] = {}
 
 for table in tables_to_extract:
     # 추출 태스크

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional, Tuple
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.mysql.operators.mysql import MySqlOperator
@@ -10,7 +11,7 @@ import os
 import logging
 from src.data.preprocessor import SensorDataPreprocessor  # 보간 기능이 있는 클래스 임포트
 
-default_args = {
+default_args: Dict[str, Any] = {
     'owner': 'airflow',
     'depends_on_past': False,
     'start_date': datetime(2025, 4, 19),
@@ -20,7 +21,7 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
-dag = DAG(
+dag: DAG = DAG(
     'sensor_data_processing_pipeline',
     default_args=default_args,
     description='서로 다른 주기의 센서 데이터 처리 및 보간 파이프라인',
@@ -28,34 +29,34 @@ dag = DAG(
     catchup=False,
 )
 
-def read_sensor_data(**kwargs):
+def read_sensor_data(**kwargs) -> Dict[str, Any]:
     """각 센서의 데이터 파일에서 데이터 읽기"""
     # Airflow Variable에서 데이터 경로 가져오기
     try:
-        data_dir = Variable.get("sensor_data_dir", default_var="/app/data/raw")
+        data_dir: str = Variable.get("sensor_data_dir", default_var="/app/data/raw")
     except:
-        data_dir = "/app/data/raw"
+        data_dir: str = "/app/data/raw"
         logging.info(f"Variable sensor_data_dir not found, using default path: {data_dir}")
     
     # 센서 ID 목록
-    sensor_ids = ['g1_sensor1', 'g1_sensor2', 'g1_sensor3', 'g1_sensor4']
+    sensor_ids: List[str] = ['g1_sensor1', 'g1_sensor2', 'g1_sensor3', 'g1_sensor4']
     
     # 각 센서별 데이터 로드
-    sensor_data = {}
+    sensor_data: Dict[str, pd.DataFrame] = {}
     
     for sensor_id in sensor_ids:
         try:
             # 가장 최근 파일 찾기 (실제 환경에서는 파일 명명 규칙에 맞게 수정 필요)
-            sensor_files = [f for f in os.listdir(data_dir) if f.startswith(f"{sensor_id}_") and f.endswith(".csv")]
+            sensor_files: List[str] = [f for f in os.listdir(data_dir) if f.startswith(f"{sensor_id}_") and f.endswith(".csv")]
             if not sensor_files:
                 logging.warning(f"No data files found for {sensor_id}")
                 continue
                 
-            latest_file = max(sensor_files, key=lambda x: os.path.getmtime(os.path.join(data_dir, x)))
-            file_path = os.path.join(data_dir, latest_file)
+            latest_file: str = max(sensor_files, key=lambda x: os.path.getmtime(os.path.join(data_dir, x)))
+            file_path: str = os.path.join(data_dir, latest_file)
             
             # 데이터 로드
-            df = pd.read_csv(file_path, names=["timestamp","normal","type1","type2","type3"],header = None)
+            df: pd.DataFrame = pd.read_csv(file_path, names=["timestamp","normal","type1","type2","type3"],header = None)
             
             # 시간 컬럼 확인 및 변환
             if 'timestamp' in df.columns:
@@ -75,10 +76,10 @@ def read_sensor_data(**kwargs):
     
     # 센서 데이터 임시 저장
     os.makedirs('/tmp/sensor_data', exist_ok=True)
-    sensor_data_info = {}
+    sensor_data_info: Dict[str, Dict[str, Any]] = {}
     
     for sensor_id, df in sensor_data.items():
-        temp_path = f'/tmp/sensor_data/raw_{sensor_id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        temp_path: str = f'/tmp/sensor_data/raw_{sensor_id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
         df.to_csv(temp_path, index=False)
         sensor_data_info[sensor_id] = {
             'file_path': temp_path,
@@ -93,12 +94,12 @@ def read_sensor_data(**kwargs):
         'sensor_ids': list(sensor_data.keys())
     }
 
-def interpolate_and_synchronize_data(**kwargs):
+def interpolate_and_synchronize_data(**kwargs) -> Dict[str, Any]:
     """서로 다른 주기의 센서 데이터를 보간하고 동기화"""
     ti = kwargs['ti']
-    data_info = ti.xcom_pull(task_ids='read_sensor_data')
-    sensor_data_info = data_info['sensor_data_info']
-    sensor_ids = data_info['sensor_ids']
+    data_info: Dict[str, Any] = ti.xcom_pull(task_ids='read_sensor_data')
+    sensor_data_info: Dict[str, Dict[str, Any]] = data_info['sensor_data_info']
+    sensor_ids: List[str] = data_info['sensor_ids']
     
     if not sensor_ids:
         logging.error("No sensor data available for interpolation")
@@ -106,15 +107,15 @@ def interpolate_and_synchronize_data(**kwargs):
     
     try:
         # 각 센서 데이터 로드
-        sensor_dataframes = {}
+        sensor_dataframes: Dict[str, pd.DataFrame] = {}
         for sensor_id in sensor_ids:
-            file_path = sensor_data_info[sensor_id]['file_path']
-            df = pd.read_csv(file_path)
+            file_path: str = sensor_data_info[sensor_id]['file_path']
+            df: pd.DataFrame = pd.read_csv(file_path)
             df['timestamp'] = pd.to_datetime(df['timestamp'])
             sensor_dataframes[sensor_id] = df
         
         # 센서 데이터 전처리기 초기화
-        preprocessor = SensorDataPreprocessor(window_size=15)
+        preprocessor: SensorDataPreprocessor = SensorDataPreprocessor(window_size=15)
         
         # 데이터 구조를 SensorDataPreprocessor.interpolate_sensor_data 메서드에 맞게 변환
         # 이 메서드는 'time' 컬럼을 기대하므로 'timestamp'를 'time'으로 변환
@@ -124,19 +125,19 @@ def interpolate_and_synchronize_data(**kwargs):
         
         # 균일한 시간 간격으로 데이터 보간
         # 가장 세밀한 시간 간격 찾기 (기본값: 0.001초)
-        min_intervals = []
+        min_intervals: List[float] = []
         for sensor_id, df in sensor_dataframes.items():
             if len(df) > 1:
-                times = df['time'].sort_values().values
-                intervals = np.diff(times)
-                min_interval = np.min(intervals[intervals > 0]) if any(intervals > 0) else 0.001
+                times: np.ndarray = df['time'].sort_values().values
+                intervals: np.ndarray = np.diff(times)
+                min_interval: float = np.min(intervals[intervals > 0]) if any(intervals > 0) else 0.001
                 min_intervals.append(min_interval)
         
-        step = min(min_intervals) if min_intervals else 0.001
+        step: float = min(min_intervals) if min_intervals else 0.001
         logging.info(f"Using interpolation step: {step}")
         
         # 보간 수행
-        interpolated_data = preprocessor.interpolate_sensor_data(
+        interpolated_data: Dict[str, pd.DataFrame] = preprocessor.interpolate_sensor_data(
             sensor_dataframes,
             time_range=None,  # 자동 생성
             step=step,
@@ -144,15 +145,15 @@ def interpolate_and_synchronize_data(**kwargs):
         )
         
         # 결과 저장
-        interpolated_data_paths = {}
+        interpolated_data_paths: Dict[str, str] = {}
         for sensor_id, df in interpolated_data.items():
-            output_path = f'/tmp/sensor_data/interpolated_{sensor_id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+            output_path: str = f'/tmp/sensor_data/interpolated_{sensor_id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
             df.to_csv(output_path, index=False)
             interpolated_data_paths[sensor_id] = output_path
         
         # 모든 센서 데이터를 통합하여 하나의 다변량 시계열 데이터셋 생성
         # 공통 타임스탬프(time 컬럼)를 기준으로 결합
-        combined_df = None
+        combined_df: Optional[pd.DataFrame] = None
         
         for sensor_id, df in interpolated_data.items():
             if combined_df is None:
@@ -167,15 +168,19 @@ def interpolate_and_synchronize_data(**kwargs):
                 combined_df = pd.merge(combined_df, temp_df, on='time', how='outer')
         
         # 결합된 데이터 저장
-        combined_path = f'/tmp/sensor_data/combined_sensors_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-        combined_df.to_csv(combined_path, index=False)
+        combined_path: str = f'/tmp/sensor_data/combined_sensors_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        if combined_df is not None:
+            combined_df.to_csv(combined_path, index=False)
+            record_count: int = len(combined_df)
+        else:
+            record_count: int = 0
         
         logging.info(f"Successfully interpolated and combined data from {len(sensor_ids)} sensors")
         
         return {
             'interpolated_data_paths': interpolated_data_paths,
             'combined_data_path': combined_path,
-            'record_count': len(combined_df),
+            'record_count': record_count,
             'status': 'success'
         }
         
@@ -186,20 +191,20 @@ def interpolate_and_synchronize_data(**kwargs):
             'message': str(e)
         }
 
-def prepare_data_for_model(**kwargs):
+def prepare_data_for_model(**kwargs) -> Dict[str, Any]:
     """보간된 데이터를 모델 학습용으로 준비"""
     ti = kwargs['ti']
-    interp_result = ti.xcom_pull(task_ids='interpolate_and_synchronize_data')
+    interp_result: Dict[str, Any] = ti.xcom_pull(task_ids='interpolate_and_synchronize_data')
     
     if interp_result['status'] != 'success':
         logging.error("Interpolation failed, cannot prepare data for model")
         return {'status': 'error', 'message': 'Previous step failed'}
     
-    combined_data_path = interp_result['combined_data_path']
+    combined_data_path: str = interp_result['combined_data_path']
     
     try:
         # 결합된 데이터 로드
-        df = pd.read_csv(combined_data_path)
+        df: pd.DataFrame = pd.read_csv(combined_data_path)
         
         # 데이터에 라벨 추가 (실제 구현에서는 라벨 소스에 따라 달라질 수 있음)
         # 이 예제에서는 가정: 센서 데이터 파일명에 상태 정보가 포함되어 있다고 가정
@@ -211,7 +216,7 @@ def prepare_data_for_model(**kwargs):
             pass
         else:
             # 파일 이름에서 상태 추출 (예시)
-            file_name = os.path.basename(combined_data_path)
+            file_name: str = os.path.basename(combined_data_path)
             if 'normal' in file_name.lower():
                 df['state'] = 'normal'
             elif 'type1' in file_name.lower():
@@ -225,11 +230,11 @@ def prepare_data_for_model(**kwargs):
                 df['state'] = 'unknown'
         
         # 모델 학습용 데이터 저장
-        model_data_path = f'/tmp/sensor_data/model_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        model_data_path: str = f'/tmp/sensor_data/model_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
         df.to_csv(model_data_path, index=False)
         
         # 최종 학습 데이터 경로 지정
-        final_data_path = os.path.join('/app/data/processed', f'training_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+        final_data_path: str = os.path.join('/app/data/processed', f'training_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
         
         # 최종 디렉토리 생성
         os.makedirs(os.path.dirname(final_data_path), exist_ok=True)
@@ -254,10 +259,10 @@ def prepare_data_for_model(**kwargs):
             'message': str(e)
         }
 
-def trigger_model_training(**kwargs):
+def trigger_model_training(**kwargs) -> Dict[str, Any]:
     """모델 학습 파이프라인 트리거"""
     ti = kwargs['ti']
-    data_prep_result = ti.xcom_pull(task_ids='prepare_data_for_model')
+    data_prep_result: Dict[str, Any] = ti.xcom_pull(task_ids='prepare_data_for_model')
     
     if data_prep_result['status'] != 'success':
         logging.error("Data preparation failed, cannot trigger model training")
@@ -267,10 +272,10 @@ def trigger_model_training(**kwargs):
         from airflow.operators.trigger_dagrun import TriggerDagRunOperator
         
         # 모델 학습 DAG 트리거를 위한 정보 준비
-        model_data_path = data_prep_result['model_data_path']
+        model_data_path: str = data_prep_result['model_data_path']
         
         # 트리거 정보 구성
-        trigger_info = {
+        trigger_info: Dict[str, Any] = {
             'data_path': model_data_path,
             'feature_count': len(data_prep_result['features']),
             'record_count': data_prep_result['record_count'],
@@ -295,25 +300,25 @@ def trigger_model_training(**kwargs):
         }
 
 # 태스크 정의
-read_data_task = PythonOperator(
+read_data_task: PythonOperator = PythonOperator(
     task_id='read_sensor_data',
     python_callable=read_sensor_data,
     dag=dag,
 )
 
-interpolate_task = PythonOperator(
+interpolate_task: PythonOperator = PythonOperator(
     task_id='interpolate_and_synchronize_data',
     python_callable=interpolate_and_synchronize_data,
     dag=dag,
 )
 
-prepare_model_data_task = PythonOperator(
+prepare_model_data_task: PythonOperator = PythonOperator(
     task_id='prepare_data_for_model',
     python_callable=prepare_data_for_model,
     dag=dag,
 )
 
-trigger_training_task = PythonOperator(
+trigger_training_task: PythonOperator = PythonOperator(
     task_id='trigger_model_training',
     python_callable=trigger_model_training,
     dag=dag,

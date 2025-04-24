@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional, Tuple, Union
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
@@ -13,7 +14,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 import io
 
-default_args = {
+default_args: Dict[str, Any] = {
     'owner': 'airflow',
     'depends_on_past': False,
     'start_date': datetime(2025, 4, 19),
@@ -23,7 +24,7 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
-dag = DAG(
+dag: DAG = DAG(
     'model_monitoring_pipeline',
     default_args=default_args,
     description='ML 모델 모니터링 파이프라인',
@@ -31,23 +32,17 @@ dag = DAG(
     catchup=False,
 )
 
-def get_deployment_info(**kwargs):
+def get_deployment_info(**kwargs) -> Dict[str, Any]:
     """현재 배포된 모델 정보 가져오기"""
-    # 실제 구현에서는 모델 레지스트리나 배포 시스템에서 정보 가져오기
-    
-    # 여기def get_deployment_info(**kwargs):
-    """현재 배포된 모델 정보 가져오기"""
-    # 실제 구현에서는 모델 레지스트리나 배포 시스템에서 정보 가져오기
-    
     # 임시 배포 정보 파일에서 정보 읽기
-    deployment_path = '/tmp/deployed_models/deployment_info.json'
+    deployment_path: str = '/tmp/deployed_models/deployment_info.json'
     
     try:
         with open(deployment_path, 'r') as f:
-            deployment_info = json.load(f)
+            deployment_info: Dict[str, Any] = json.load(f)
     except FileNotFoundError:
         # 파일이 없는 경우 기본값 설정
-        deployment_info = {
+        deployment_info: Dict[str, Any] = {
             'model_name': 'quality_prediction_model',
             'model_version': 'latest',
             'deployment_id': 'default-deployment',
@@ -59,16 +54,16 @@ def get_deployment_info(**kwargs):
     
     return deployment_info
 
-def collect_production_data(**kwargs):
+def collect_production_data(**kwargs) -> str:
     """프로덕션 환경에서 새로운 데이터 수집"""
     # 실제 구현에서는 데이터베이스에서 최근 데이터 수집
     
     # 예시 데이터 생성
     np.random.seed(int(datetime.now().timestamp()) % 100000)
-    data_size = 200
+    data_size: int = 200
     
     # 조금 다른 분포를 가진 데이터 생성 (드리프트 시뮬레이션)
-    data = {
+    data: Dict[str, np.ndarray] = {
         'temperature': np.random.normal(55, 16, data_size),  # 평균값이 약간 높아짐
         'vibration': np.random.normal(2.2, 1.2, data_size),  # 분산이 약간 커짐
         'pressure': np.random.normal(100, 20, data_size),
@@ -79,35 +74,35 @@ def collect_production_data(**kwargs):
     # 약간 달라진 상관관계 적용
     data['target_quality'] = 85 - 0.18 * data['temperature'] + 0.32 * data['pressure'] - 0.13 * data['vibration'] + np.random.normal(0, 3, data_size)
     
-    df = pd.DataFrame(data)
+    df: pd.DataFrame = pd.DataFrame(data)
     
     # 데이터 저장
     os.makedirs('/tmp/monitoring_data', exist_ok=True)
-    current_time = datetime.now().strftime('%Y%m%d_%H%M%S')
-    file_path = f'/tmp/monitoring_data/production_data_{current_time}.csv'
+    current_time: str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    file_path: str = f'/tmp/monitoring_data/production_data_{current_time}.csv'
     df.to_csv(file_path, index=False)
     
     print(f"프로덕션 데이터를 수집했습니다: {file_path} ({len(df)} 레코드)")
     
     return file_path
 
-def detect_data_drift(**kwargs):
+def detect_data_drift(**kwargs) -> Dict[str, Any]:
     """데이터 드리프트 감지"""
     ti = kwargs['ti']
-    prod_data_path = ti.xcom_pull(task_ids='collect_production_data')
+    prod_data_path: str = ti.xcom_pull(task_ids='collect_production_data')
     
     # 새 데이터 로드
-    new_data = pd.read_csv(prod_data_path)
+    new_data: pd.DataFrame = pd.read_csv(prod_data_path)
     
     # 참조 데이터 로드 (학습 데이터)
     # 실제 구현에서는 저장된 참조 데이터 통계 사용
     try:
-        reference_stats_path = '/tmp/ml_data/reference_data_stats.json'
+        reference_stats_path: str = '/tmp/ml_data/reference_data_stats.json'
         with open(reference_stats_path, 'r') as f:
-            reference_stats = json.load(f)
+            reference_stats: Dict[str, Dict[str, float]] = json.load(f)
     except FileNotFoundError:
         # 참조 통계가 없으면 기본값 설정
-        reference_stats = {
+        reference_stats: Dict[str, Dict[str, float]] = {
             'temperature': {'mean': 50, 'std': 15},
             'vibration': {'mean': 2, 'std': 1},
             'pressure': {'mean': 100, 'std': 20},
@@ -115,15 +110,15 @@ def detect_data_drift(**kwargs):
         }
     
     # 각 특성에 대한 드리프트 계산
-    drift_metrics = {}
+    drift_metrics: Dict[str, Dict[str, Union[float, bool]]] = {}
     for feature in ['temperature', 'vibration', 'pressure', 'run_time']:
-        new_mean = new_data[feature].mean()
-        new_std = new_data[feature].std()
+        new_mean: float = new_data[feature].mean()
+        new_std: float = new_data[feature].std()
         
         # 평균의 상대적 변화
-        mean_drift = abs((new_mean - reference_stats[feature]['mean']) / reference_stats[feature]['mean'])
+        mean_drift: float = abs((new_mean - reference_stats[feature]['mean']) / reference_stats[feature]['mean'])
         # 표준편차의 상대적 변화
-        std_drift = abs((new_std - reference_stats[feature]['std']) / reference_stats[feature]['std'])
+        std_drift: float = abs((new_std - reference_stats[feature]['std']) / reference_stats[feature]['std'])
         
         drift_metrics[feature] = {
             'mean_drift': mean_drift,
@@ -132,7 +127,7 @@ def detect_data_drift(**kwargs):
         }
     
     # 전체 드리프트 상태 판단
-    has_drift = any(m['is_significant'] for m in drift_metrics.values())
+    has_drift: bool = any(m['is_significant'] for m in drift_metrics.values())
     
     # 시각화 (실제 Airflow에서는 작동하지 않을 수 있음 - 참고용)
     # 실제 구현에서는 이미지를 파일로 저장하거나 다른 방식 사용
@@ -163,7 +158,7 @@ def detect_data_drift(**kwargs):
     """
     
     # 드리프트 메트릭 저장
-    drift_metrics_path = f'/tmp/monitoring_data/drift_metrics_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
+    drift_metrics_path: str = f'/tmp/monitoring_data/drift_metrics_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
     with open(drift_metrics_path, 'w') as f:
         json.dump({
             'timestamp': datetime.now().isoformat(),
@@ -179,24 +174,24 @@ def detect_data_drift(**kwargs):
         'drift_features': [f for f, m in drift_metrics.items() if m['is_significant']]
     }
 
-def evaluate_model_performance(**kwargs):
+def evaluate_model_performance(**kwargs) -> Dict[str, Any]:
     """모델 성능 평가"""
     ti = kwargs['ti']
-    prod_data_path = ti.xcom_pull(task_ids='collect_production_data')
-    deployment_info = ti.xcom_pull(task_ids='get_deployment_info')
+    prod_data_path: str = ti.xcom_pull(task_ids='collect_production_data')
+    deployment_info: Dict[str, Any] = ti.xcom_pull(task_ids='get_deployment_info')
     
     # 모델 로드
-    model_path = f"/tmp/deployed_models/{deployment_info['model_name']}_v{deployment_info['model_version'] if deployment_info.get('model_version') else 'latest'}.pkl"
+    model_path: str = f"/tmp/deployed_models/{deployment_info['model_name']}_v{deployment_info['model_version'] if deployment_info.get('model_version') else 'latest'}.pkl"
     
     try:
         with open(model_path, 'rb') as f:
-            model = pickle.load(f)
+            model: Any = pickle.load(f)
     except FileNotFoundError:
         print(f"모델 파일을 찾을 수 없습니다: {model_path}")
         # MLflow에서 다시 로드 시도
         mlflow.set_tracking_uri("http://mlflow:5000")
         try:
-            model = mlflow.pyfunc.load_model(f"models:/{deployment_info['model_name']}/Production")
+            model: Any = mlflow.pyfunc.load_model(f"models:/{deployment_info['model_name']}/Production")
         except Exception as e:
             print(f"MLflow에서 모델을 로드하는 데 실패했습니다: {e}")
             return {
@@ -205,25 +200,25 @@ def evaluate_model_performance(**kwargs):
             }
     
     # 데이터 로드
-    data = pd.read_csv(prod_data_path)
+    data: pd.DataFrame = pd.read_csv(prod_data_path)
     
     # 특성과 타겟 분리
-    X = data.drop('target_quality', axis=1)
-    y = data['target_quality']
+    X: pd.DataFrame = data.drop('target_quality', axis=1)
+    y: pd.Series = data['target_quality']
     
     # 모델 예측
-    y_pred = model.predict(X)
+    y_pred: np.ndarray = model.predict(X)
     
     # 성능 지표 계산
-    mse = mean_squared_error(y, y_pred)
-    r2 = r2_score(y, y_pred)
+    mse: float = mean_squared_error(y, y_pred)
+    r2: float = r2_score(y, y_pred)
     
     # 성능 임계값 설정
-    performance_threshold = 0.7  # R² > 0.7
-    is_performance_acceptable = r2 > performance_threshold
+    performance_threshold: float = 0.7  # R² > 0.7
+    is_performance_acceptable: bool = r2 > performance_threshold
     
     # 결과 저장
-    performance_path = f'/tmp/monitoring_data/model_performance_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
+    performance_path: str = f'/tmp/monitoring_data/model_performance_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
     with open(performance_path, 'w') as f:
         json.dump({
             'timestamp': datetime.now().isoformat(),
@@ -246,21 +241,21 @@ def evaluate_model_performance(**kwargs):
         'is_acceptable': is_performance_acceptable
     }
 
-def send_monitoring_alert(**kwargs):
+def send_monitoring_alert(**kwargs) -> Dict[str, Any]:
     """모니터링 알림 전송"""
     ti = kwargs['ti']
-    drift_result = ti.xcom_pull(task_ids='detect_data_drift')
-    performance_result = ti.xcom_pull(task_ids='evaluate_model_performance')
+    drift_result: Dict[str, Any] = ti.xcom_pull(task_ids='detect_data_drift')
+    performance_result: Dict[str, Any] = ti.xcom_pull(task_ids='evaluate_model_performance')
     
     # 알림이 필요한지 확인
-    needs_alert = drift_result.get('has_drift', False) or not performance_result.get('is_acceptable', True)
+    needs_alert: bool = drift_result.get('has_drift', False) or not performance_result.get('is_acceptable', True)
     
     if not needs_alert:
         print("알림이 필요하지 않습니다. 모든 지표가 정상 범위 내에 있습니다.")
         return "알림 필요 없음"
     
     # 알림 메시지 생성
-    alert_message = {
+    alert_message: Dict[str, Any] = {
         'timestamp': datetime.now().isoformat(),
         'severity': 'high' if not performance_result.get('is_acceptable', True) else 'medium',
         'title': '모델 모니터링 알림',
@@ -268,11 +263,11 @@ def send_monitoring_alert(**kwargs):
     }
     
     if drift_result.get('has_drift', False):
-        drift_features = ', '.join(drift_result.get('drift_features', []))
+        drift_features: str = ', '.join(drift_result.get('drift_features', []))
         alert_message['message'].append(f"데이터 드리프트가 감지되었습니다. 영향받은 특성: {drift_features}")
     
     if not performance_result.get('is_acceptable', True):
-        metrics = performance_result.get('metrics', {})
+        metrics: Dict[str, float] = performance_result.get('metrics', {})
         alert_message['message'].append(
             f"모델 성능이 임계값 아래로 떨어졌습니다. R² = {metrics.get('r2', 0):.4f}, MSE = {metrics.get('mse', 0):.4f}"
         )
@@ -280,7 +275,7 @@ def send_monitoring_alert(**kwargs):
     alert_message['message'] = '\n'.join(alert_message['message'])
     
     # 알림 저장
-    alert_path = f'/tmp/monitoring_data/alert_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
+    alert_path: str = f'/tmp/monitoring_data/alert_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
     with open(alert_path, 'w') as f:
         json.dump(alert_message, f, indent=2)
     
@@ -298,13 +293,13 @@ def send_monitoring_alert(**kwargs):
         'needs_retraining': not performance_result.get('is_acceptable', True) or drift_result.get('has_drift', False)
     }
 
-def trigger_retraining(**kwargs):
+def trigger_retraining(**kwargs) -> Dict[str, Any]:
     """필요한 경우 재학습 트리거"""
     ti = kwargs['ti']
-    alert_result = ti.xcom_pull(task_ids='send_monitoring_alert')
+    alert_result: Dict[str, Any] = ti.xcom_pull(task_ids='send_monitoring_alert')
     
     # 재학습이 필요한지 확인
-    needs_retraining = alert_result.get('needs_retraining', False)
+    needs_retraining: bool = alert_result.get('needs_retraining', False)
     
     if not needs_retraining:
         print("재학습이 필요하지 않습니다.")
@@ -314,7 +309,7 @@ def trigger_retraining(**kwargs):
     
     # 실제 구현에서는 여기서 모델 학습 DAG 트리거
     # 여기서는 시뮬레이션만 수행
-    retraining_request = {
+    retraining_request: Dict[str, Any] = {
         'timestamp': datetime.now().isoformat(),
         'reason': 'Performance degradation or data drift detected',
         'alert_severity': alert_result.get('severity', 'medium'),
@@ -322,7 +317,7 @@ def trigger_retraining(**kwargs):
     }
     
     # 재학습 요청 저장
-    retraining_path = f'/tmp/monitoring_data/retraining_request_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
+    retraining_path: str = f'/tmp/monitoring_data/retraining_request_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
     with open(retraining_path, 'w') as f:
         json.dump(retraining_request, f, indent=2)
     
@@ -332,43 +327,43 @@ def trigger_retraining(**kwargs):
     }
 
 # 태스크 정의
-get_deployment_task = PythonOperator(
+get_deployment_task: PythonOperator = PythonOperator(
     task_id='get_deployment_info',
     python_callable=get_deployment_info,
     dag=dag,
 )
 
-collect_data_task = PythonOperator(
+collect_data_task: PythonOperator = PythonOperator(
     task_id='collect_production_data',
     python_callable=collect_production_data,
     dag=dag,
 )
 
-drift_task = PythonOperator(
+drift_task: PythonOperator = PythonOperator(
     task_id='detect_data_drift',
     python_callable=detect_data_drift,
     dag=dag,
 )
 
-performance_task = PythonOperator(
+performance_task: PythonOperator = PythonOperator(
     task_id='evaluate_model_performance',
     python_callable=evaluate_model_performance,
     dag=dag,
 )
 
-alert_task = PythonOperator(
+alert_task: PythonOperator = PythonOperator(
     task_id='send_monitoring_alert',
     python_callable=send_monitoring_alert,
     dag=dag,
 )
 
-retraining_task = PythonOperator(
+retraining_task: PythonOperator = PythonOperator(
     task_id='trigger_retraining',
     python_callable=trigger_retraining,
     dag=dag,
 )
 
-trigger_training_dag = TriggerDagRunOperator(
+trigger_training_dag: TriggerDagRunOperator = TriggerDagRunOperator(
     task_id='trigger_model_training_dag',
     trigger_dag_id='model_training_pipeline',
     conf={'triggered_by': 'monitoring_pipeline'},

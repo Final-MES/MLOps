@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Dict, Any, Optional, Union, List
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 import json
@@ -9,7 +10,7 @@ import mlflow.pyfunc
 import os
 import pickle
 
-default_args = {
+default_args: Dict[str, Any] = {
     'owner': 'airflow',
     'depends_on_past': False,
     'start_date': datetime(2025, 4, 19),
@@ -19,7 +20,7 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
-dag = DAG(
+dag: DAG = DAG(
     'model_deployment_pipeline',
     default_args=default_args,
     description='ML 모델 배포 파이프라인',
@@ -27,13 +28,16 @@ dag = DAG(
     catchup=False,
 )
 
-def get_production_model(**kwargs):
+def get_production_model(**kwargs) -> Dict[str, Any]:
     """MLflow에서 프로덕션 모델 가져오기"""
     # DAG 트리거 시 전달된 모델 정보 가져오기
+    model_name: str = "quality_prediction_model"
+    model_version: Optional[str] = None
+    
     try:
         dag_run_conf = kwargs.get('dag_run').conf
         if dag_run_conf and 'model_info' in dag_run_conf:
-            model_info = json.loads(dag_run_conf['model_info'].replace("'", '"'))
+            model_info: Dict[str, Any] = json.loads(dag_run_conf['model_info'].replace("'", '"'))
             model_name = model_info['model_name']
             model_version = model_info['model_version']
         else:
@@ -42,24 +46,22 @@ def get_production_model(**kwargs):
             model_version = None  # 최신 프로덕션 버전 사용
     except Exception as e:
         print(f"모델 정보를 가져오는 중 오류 발생: {e}")
-        model_name = "quality_prediction_model"
-        model_version = None
     
     # MLflow 설정
     mlflow.set_tracking_uri("http://mlflow:5000")
     
     # 모델 가져오기
     if model_version:
-        model_uri = f"models:/{model_name}/{model_version}"
+        model_uri: str = f"models:/{model_name}/{model_version}"
     else:
-        model_uri = f"models:/{model_name}/Production"
+        model_uri: str = f"models:/{model_name}/Production"
     
     # 모델 다운로드 경로
     os.makedirs('/tmp/deployed_models', exist_ok=True)
-    local_path = f'/tmp/deployed_models/{model_name}_v{model_version if model_version else "latest"}'
+    local_path: str = f'/tmp/deployed_models/{model_name}_v{model_version if model_version else "latest"}'
     
     # 모델 다운로드
-    model = mlflow.pyfunc.load_model(model_uri)
+    model: Any = mlflow.pyfunc.load_model(model_uri)
     
     # 모델 저장
     with open(f'{local_path}.pkl', 'wb') as f:
@@ -73,16 +75,16 @@ def get_production_model(**kwargs):
         'local_path': f'{local_path}.pkl'
     }
 
-def prepare_serving_environment(**kwargs):
+def prepare_serving_environment(**kwargs) -> Dict[str, Any]:
     """모델 서빙 환경 준비"""
     ti = kwargs['ti']
-    model_info = ti.xcom_pull(task_ids='get_production_model')
+    model_info: Dict[str, Any] = ti.xcom_pull(task_ids='get_production_model')
     
     # 실제 구현에서는 모델 서빙 환경 구성 (FastAPI, Flask 등)
     print(f"모델 서빙 환경을 준비 중입니다: {model_info['model_name']}")
     
     # 예시 설정 파일 생성
-    config = {
+    config: Dict[str, Any] = {
         'model_path': model_info['local_path'],
         'model_name': model_info['model_name'],
         'model_version': model_info['model_version'],
@@ -91,7 +93,7 @@ def prepare_serving_environment(**kwargs):
         'batch_size': 32
     }
     
-    config_path = '/tmp/deployed_models/serving_config.json'
+    config_path: str = '/tmp/deployed_models/serving_config.json'
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=2)
     
@@ -102,17 +104,17 @@ def prepare_serving_environment(**kwargs):
         'api_port': 8000
     }
 
-def deploy_model_service(**kwargs):
+def deploy_model_service(**kwargs) -> Dict[str, Any]:
     """모델 서비스 배포"""
     ti = kwargs['ti']
-    model_info = ti.xcom_pull(task_ids='get_production_model')
-    serving_info = ti.xcom_pull(task_ids='prepare_serving_environment')
+    model_info: Dict[str, Any] = ti.xcom_pull(task_ids='get_production_model')
+    serving_info: Dict[str, Any] = ti.xcom_pull(task_ids='prepare_serving_environment')
     
     # 실제 구현에서는 컨테이너 오케스트레이션 시스템에 배포 요청
     print(f"모델 서비스를 배포 중입니다: {model_info['model_name']}")
     
     # 배포 정보 및 상태 반환
-    deployment_info = {
+    deployment_info: Dict[str, Any] = {
         'model_name': model_info['model_name'],
         'model_version': model_info['model_version'],
         'deployment_id': f"deployment-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
@@ -122,7 +124,7 @@ def deploy_model_service(**kwargs):
     }
     
     # 배포 정보 저장
-    deployment_path = '/tmp/deployed_models/deployment_info.json'
+    deployment_path: str = '/tmp/deployed_models/deployment_info.json'
     with open(deployment_path, 'w') as f:
         json.dump(deployment_info, f, indent=2)
     
@@ -138,16 +140,16 @@ def deploy_model_service(**kwargs):
     
     return deployment_info
 
-def validate_deployment(**kwargs):
+def validate_deployment(**kwargs) -> Dict[str, Any]:
     """배포 검증"""
     ti = kwargs['ti']
-    deployment_info = ti.xcom_pull(task_ids='deploy_model_service')
+    deployment_info: Dict[str, Any] = ti.xcom_pull(task_ids='deploy_model_service')
     
     # 실제 구현에서는 API 엔드포인트 호출 및 응답 검증
     print(f"배포를 검증 중입니다: {deployment_info['deployment_id']}")
     
     # 테스트 데이터
-    test_data = {
+    test_data: Dict[str, List[float]] = {
         'temperature': [45.0, 55.0],
         'vibration': [2.1, 1.5],
         'pressure': [95.0, 105.0],
@@ -158,25 +160,25 @@ def validate_deployment(**kwargs):
     # 실제 환경에서는 아래 주석을 해제하고 실제 API 호출
     """
     try:
-        response = requests.post(
+        response: requests.Response = requests.post(
             deployment_info['api_endpoint'],
             json=test_data,
             timeout=10
         )
         response.raise_for_status()
-        predictions = response.json()
+        predictions: Dict[str, Any] = response.json()
         print(f"API 응답: {predictions}")
-        validation_status = 'success'
+        validation_status: str = 'success'
     except Exception as e:
         print(f"API 호출 중 오류 발생: {e}")
-        validation_status = 'failed'
+        validation_status: str = 'failed'
     """
     
     # 시뮬레이션된 성공 응답
-    validation_status = 'success'
+    validation_status: str = 'success'
     
     # 검증 결과 반환
-    validation_result = {
+    validation_result: Dict[str, Any] = {
         'deployment_id': deployment_info['deployment_id'],
         'validation_status': validation_status,
         'timestamp': datetime.now().isoformat()
@@ -186,14 +188,14 @@ def validate_deployment(**kwargs):
     
     return validation_result
 
-def configure_monitoring(**kwargs):
+def configure_monitoring(**kwargs) -> Dict[str, str]:
     """모델 모니터링 설정"""
     ti = kwargs['ti']
-    deployment_info = ti.xcom_pull(task_ids='deploy_model_service')
-    validation_result = ti.xcom_pull(task_ids='validate_deployment')
+    deployment_info: Dict[str, Any] = ti.xcom_pull(task_ids='deploy_model_service')
+    validation_result: Dict[str, Any] = ti.xcom_pull(task_ids='validate_deployment')
     
     # 모니터링 설정 생성
-    monitoring_config = {
+    monitoring_config: Dict[str, Any] = {
         'deployment_id': deployment_info['deployment_id'],
         'model_name': deployment_info['model_name'],
         'model_version': deployment_info['model_version'],
@@ -211,7 +213,7 @@ def configure_monitoring(**kwargs):
     }
     
     # 설정 저장
-    config_path = '/tmp/deployed_models/monitoring_config.json'
+    config_path: str = '/tmp/deployed_models/monitoring_config.json'
     with open(config_path, 'w') as f:
         json.dump(monitoring_config, f, indent=2)
     
@@ -228,15 +230,15 @@ def configure_monitoring(**kwargs):
         'dashboard_url': monitoring_config['dashboard_url']
     }
 
-def notify_deployment_status(**kwargs):
+def notify_deployment_status(**kwargs) -> str:
     """배포 상태 알림"""
     ti = kwargs['ti']
-    deployment_info = ti.xcom_pull(task_ids='deploy_model_service')
-    validation_result = ti.xcom_pull(task_ids='validate_deployment')
-    monitoring_info = ti.xcom_pull(task_ids='configure_monitoring')
+    deployment_info: Dict[str, Any] = ti.xcom_pull(task_ids='deploy_model_service')
+    validation_result: Dict[str, Any] = ti.xcom_pull(task_ids='validate_deployment')
+    monitoring_info: Dict[str, str] = ti.xcom_pull(task_ids='configure_monitoring')
     
     # 배포 요약 메시지 생성
-    message = f"""
+    message: str = f"""
     모델 배포 완료
     
     모델: {deployment_info['model_name']} (버전 {deployment_info['model_version']})
@@ -255,37 +257,37 @@ def notify_deployment_status(**kwargs):
     return "알림 전송 완료"
 
 # 태스크 정의
-get_model_task = PythonOperator(
+get_model_task: PythonOperator = PythonOperator(
     task_id='get_production_model',
     python_callable=get_production_model,
     dag=dag,
 )
 
-prepare_env_task = PythonOperator(
+prepare_env_task: PythonOperator = PythonOperator(
     task_id='prepare_serving_environment',
     python_callable=prepare_serving_environment,
     dag=dag,
 )
 
-deploy_task = PythonOperator(
+deploy_task: PythonOperator = PythonOperator(
     task_id='deploy_model_service',
     python_callable=deploy_model_service,
     dag=dag,
 )
 
-validate_task = PythonOperator(
+validate_task: PythonOperator = PythonOperator(
     task_id='validate_deployment',
     python_callable=validate_deployment,
     dag=dag,
 )
 
-monitoring_task = PythonOperator(
+monitoring_task: PythonOperator = PythonOperator(
     task_id='configure_monitoring',
     python_callable=configure_monitoring,
     dag=dag,
 )
 
-notify_task = PythonOperator(
+notify_task: PythonOperator = PythonOperator(
     task_id='notify_deployment_status',
     python_callable=notify_deployment_status,
     dag=dag,
