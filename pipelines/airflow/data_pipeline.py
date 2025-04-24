@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Union
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.mysql.operators.mysql import MySqlOperator
@@ -33,29 +33,29 @@ def read_sensor_data(**kwargs) -> Dict[str, Any]:
     """각 센서의 데이터 파일에서 데이터 읽기"""
     # Airflow Variable에서 데이터 경로 가져오기
     try:
-        data_dir = Variable.get("sensor_data_dir", default_var="/app/data/raw/vibration")
+        data_dir: str = Variable.get("sensor_data_dir", default_var="/app/data/raw/vibration")
     except:
-        data_dir = "/app/data/raw/vibration"
+        data_dir: str = "/app/data/raw/vibration"
         logging.info(f"Variable sensor_data_dir not found, using default path: {data_dir}")
     
     # 센서 데이터 파일 목록 가져오기 (실제 환경에서는 파일 명명 규칙에 맞게 수정 필요)
-    sensor_files = [f for f in os.listdir(data_dir) if f.endswith(".csv")]
+    sensor_files: List[str] = [f for f in os.listdir(data_dir) if f.endswith(".csv")]
     
     if not sensor_files:
         logging.error("No sensor data files found in the directory")
         return {'status': 'error', 'message': 'No sensor data files found'}
     
     # 가장 최근 파일 선택 (또는 필요에 따라 다른 선택 방법 사용)
-    latest_file = max(sensor_files, key=lambda x: os.path.getmtime(os.path.join(data_dir, x)))
-    file_path = os.path.join(data_dir, latest_file)
+    latest_file: str = max(sensor_files, key=lambda x: os.path.getmtime(os.path.join(data_dir, x)))
+    file_path: str = os.path.join(data_dir, latest_file)
     
     try:
         # 센서 데이터 로드
-        df = pd.read_csv(file_path,names =["time","normal","type1","type2","type3"])
+        df: pd.DataFrame = pd.read_csv(file_path, names=["time", "normal", "type1", "type2", "type3"])
         logging.info(f"Loaded {len(df)} records from {file_path}")
         
         # 시간 컬럼 확인 및 처리
-        time_column = None
+        time_column: Optional[str] = None
         for col in ['timestamp', 'time', 'datetime']:
             if col in df.columns:
                 time_column = col
@@ -68,7 +68,7 @@ def read_sensor_data(**kwargs) -> Dict[str, Any]:
             time_column = 'time'
         
         # 상태 컬럼 확인
-        state_column = None
+        state_column: Optional[str] = None
         for col in ['state', 'status', 'condition', 'label', 'class']:
             if col in df.columns:
                 state_column = col
@@ -80,11 +80,11 @@ def read_sensor_data(**kwargs) -> Dict[str, Any]:
         
         # 데이터 임시 저장
         os.makedirs('/tmp/sensor_data', exist_ok=True)
-        temp_path = f'/tmp/sensor_data/raw_sensor_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        temp_path: str = f'/tmp/sensor_data/raw_sensor_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
         df.to_csv(temp_path, index=False)
         
         # 데이터 정보 반환
-        data_info = {
+        data_info: Dict[str, Any] = {
             'file_path': temp_path,
             'original_file': latest_file,
             'record_count': len(df),
@@ -96,7 +96,7 @@ def read_sensor_data(**kwargs) -> Dict[str, Any]:
         
         if state_column:
             # 상태별 레코드 수 계산
-            state_counts = df[state_column].value_counts().to_dict()
+            state_counts: Dict[Any, int] = df[state_column].value_counts().to_dict()
             data_info['state_counts'] = state_counts
             logging.info(f"State distribution: {state_counts}")
         
@@ -106,46 +106,47 @@ def read_sensor_data(**kwargs) -> Dict[str, Any]:
         logging.error(f"Error reading sensor data: {e}")
         return {'status': 'error', 'message': str(e)}
 
-def preprocess_and_interpolate_data(**kwargs):
+def preprocess_and_interpolate_data(**kwargs) -> Dict[str, Any]:
     """센서 데이터 전처리 및 보간"""
     ti = kwargs['ti']
-    data_info = ti.xcom_pull(task_ids='read_sensor_data')
+    data_info: Dict[str, Any] = ti.xcom_pull(task_ids='read_sensor_data')
     
     if not data_info or data_info.get('status') == 'error':
         logging.error("Failed to read sensor data")
         return {'status': 'error', 'message': 'Failed to read sensor data'}
     
-    file_path = data_info['file_path']
-    time_column = data_info['time_column']
-    state_column = data_info.get('state_column')
+    file_path: str = data_info['file_path']
+    time_column: str = data_info['time_column']
+    state_column: Optional[str] = data_info.get('state_column')
     
     try:
         # 데이터 로드
-        df = pd.read_csv(file_path, names = ["time","normal","type1","type2","type3"])
+        df: pd.DataFrame = pd.read_csv(file_path, names=["time", "normal", "type1", "type2", "type3"])
         df[time_column] = pd.to_datetime(df["time"])
         
         # 전처리기 초기화
-        preprocessor = SensorDataPreprocessor(window_size=15)
+        preprocessor: SensorDataPreprocessor = SensorDataPreprocessor(window_size=15)
         
         # 결측치 처리
         logging.info("Handling missing values")
-        missing_before = df.isna().sum().sum()
+        missing_before: int = df.isna().sum().sum()
         df = preprocessor.handle_missing_values(df)
-        missing_after = df.isna().sum().sum()
+        missing_after: int = df.isna().sum().sum()
         logging.info(f"Missing values: {missing_before} before, {missing_after} after preprocessing")
         
         # 이상치 처리
         logging.info("Handling outliers")
-        df = preprocessor.handle_outliers(df, exclude_columns=[time_column, state_column] if state_column else [time_column])
+        exclude_cols: List[str] = [time_column, state_column] if state_column else [time_column]
+        df = preprocessor.handle_outliers(df, exclude_columns=exclude_cols)
         
         # 시간 컬럼 처리 (보간을 위해 숫자로 변환)
         df['time_seconds'] = df[time_column].astype(np.int64) // 10**9  # 타임스탬프를 초 단위로 변환
         
         # 특성 컬럼 (시간과 상태 컬럼 제외)
-        feature_columns = [col for col in df.columns if col not in [time_column, state_column, 'time_seconds']]
+        feature_columns: List[str] = [col for col in df.columns if col not in [time_column, state_column, 'time_seconds']]
         
         # 보간 데이터 준비 (전처리기에 맞게 데이터 구조 변환)
-        sensor_data = {}
+        sensor_data: Dict[str, pd.DataFrame] = {}
         
         # 전체 데이터를 하나의 센서로 취급
         sensor_data['combined_sensor'] = df[['time_seconds'] + feature_columns].rename(columns={'time_seconds': 'time'})
@@ -154,13 +155,13 @@ def preprocess_and_interpolate_data(**kwargs):
         logging.info("Interpolating sensor data")
         
         # 시간 간격 계산 (초 단위)
-        times = sorted(df['time_seconds'].values)
-        intervals = np.diff(times)
-        min_interval = np.min(intervals[intervals > 0]) if any(intervals > 0) else 0.001
+        times: np.ndarray = sorted(df['time_seconds'].values)
+        intervals: np.ndarray = np.diff(times)
+        min_interval: float = np.min(intervals[intervals > 0]) if any(intervals > 0) else 0.001
         logging.info(f"Using interpolation step: {min_interval}")
         
         # 보간 수행
-        interpolated_data = preprocessor.interpolate_sensor_data(
+        interpolated_data: Dict[str, pd.DataFrame] = preprocessor.interpolate_sensor_data(
             sensor_data,
             time_range=None,  # 자동 생성
             step=min_interval,
@@ -168,7 +169,7 @@ def preprocess_and_interpolate_data(**kwargs):
         )
         
         # 보간된 데이터 처리
-        interpolated_df = interpolated_data['combined_sensor']
+        interpolated_df: pd.DataFrame = interpolated_data['combined_sensor']
         
         # 원래 시간 형식으로 변환
         interpolated_df['timestamp'] = pd.to_datetime(interpolated_df['time'], unit='s')
@@ -176,7 +177,7 @@ def preprocess_and_interpolate_data(**kwargs):
         # 상태 정보 추가 (가장 가까운 시간의 상태로 보간)
         if state_column:
             # 원본 데이터에서 시간과 상태만 추출
-            state_df = df[[time_column, state_column]].copy()
+            state_df: pd.DataFrame = df[[time_column, state_column]].copy()
             state_df['time_seconds'] = state_df[time_column].astype(np.int64) // 10**9
             
             # 가장 가까운 시간의 상태로 보간
@@ -184,19 +185,19 @@ def preprocess_and_interpolate_data(**kwargs):
             from scipy.spatial.distance import cdist
             
             # 두 시간 배열 간의 거리 계산
-            distances = cdist(
+            distances: np.ndarray = cdist(
                 interpolated_df['time'].values.reshape(-1, 1),
                 state_df['time_seconds'].values.reshape(-1, 1)
             )
             
             # 각 행에 대한 최소 거리 인덱스 찾기
-            closest_indices = np.argmin(distances, axis=1)
+            closest_indices: np.ndarray = np.argmin(distances, axis=1)
             
             # 보간된 데이터에 상태 추가
             interpolated_df[state_column] = state_df[state_column].iloc[closest_indices].values
         
         # 최종 데이터 저장
-        processed_path = f'/tmp/sensor_data/processed_sensor_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        processed_path: str = f'/tmp/sensor_data/processed_sensor_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
         interpolated_df.to_csv(processed_path, index=False)
         
         logging.info(f"Processed data saved to {processed_path} ({len(interpolated_df)} records)")
@@ -214,28 +215,28 @@ def preprocess_and_interpolate_data(**kwargs):
         logging.error(f"Error preprocessing sensor data: {e}")
         return {'status': 'error', 'message': str(e)}
 
-def prepare_data_for_model(**kwargs):
+def prepare_data_for_model(**kwargs) -> Dict[str, Any]:
     """전처리된 데이터를 모델 학습용으로 준비"""
     ti = kwargs['ti']
-    preprocess_result = ti.xcom_pull(task_ids='preprocess_and_interpolate_data')
+    preprocess_result: Dict[str, Any] = ti.xcom_pull(task_ids='preprocess_and_interpolate_data')
     
     if not preprocess_result or preprocess_result.get('status') == 'error':
         logging.error("Failed to preprocess sensor data")
         return {'status': 'error', 'message': 'Failed to preprocess sensor data'}
     
-    processed_file_path = preprocess_result['processed_file_path']
-    state_column = preprocess_result.get('state_column')
+    processed_file_path: str = preprocess_result['processed_file_path']
+    state_column: Optional[str] = preprocess_result.get('state_column')
     
     try:
         # 전처리된 데이터 로드
-        df = pd.read_csv(processed_file_path)
+        df: pd.DataFrame = pd.read_csv(processed_file_path)
         
         # 특성 공학 (필요한 경우)
         logging.info("Performing feature engineering")
         
         # 통계적 특성 추출
-        preprocessor = SensorDataPreprocessor(window_size=15)
-        feature_columns = preprocess_result['feature_columns']
+        preprocessor: SensorDataPreprocessor = SensorDataPreprocessor(window_size=15)
+        feature_columns: List[str] = preprocess_result['feature_columns']
         
         # 추가 특성 생성
         df = preprocessor.extract_statistical_moments(df, columns=feature_columns)
@@ -254,7 +255,7 @@ def prepare_data_for_model(**kwargs):
         
         # 클래스 분포 확인 (상태 컬럼이 있는 경우)
         if state_column and state_column in df.columns:
-            state_counts = df[state_column].value_counts().to_dict()
+            state_counts: Dict[Any, int] = df[state_column].value_counts().to_dict()
             logging.info(f"Class distribution in training data: {state_counts}")
         
         return {
@@ -293,7 +294,7 @@ def trigger_model_training(**kwargs) -> Dict[str, Any]:
         
         # 실제 트리거 실행
         from airflow.operators.trigger_dagrun import TriggerDagRunOperator
-        trigger_task = TriggerDagRunOperator(
+        trigger_task: TriggerDagRunOperator = TriggerDagRunOperator(
             task_id='trigger_model_training',
             trigger_dag_id='model_training_pipeline',
             conf={'trigger_info': json.dumps(trigger_info)},
@@ -324,7 +325,7 @@ read_data_task: PythonOperator = PythonOperator(
     dag=dag,
 )
 
-preprocess_task = PythonOperator(
+preprocess_task: PythonOperator = PythonOperator(
     task_id='preprocess_and_interpolate_data',
     python_callable=preprocess_and_interpolate_data,
     dag=dag,
