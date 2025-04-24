@@ -303,8 +303,8 @@ def train_model(train_data, valid_data, args):
         torch.from_numpy(y_valid).to(device)
     )
     
-    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
-    valid_loader = DataLoader(valid_dataset, batch_size=4, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    valid_loader = DataLoader(valid_dataset, batch_size=32, shuffle=False)
     
     # 모델 초기화
     input_size = X_train.shape[2]
@@ -336,15 +336,14 @@ def train_model(train_data, valid_data, args):
     logger.info(f"모델 학습 시작: 에폭 {num_epochs}, 은닉층 크기 {args.hidden_size}, 레이어 수 {args.num_layers}")
     
     for epoch in range(num_epochs):
-        logger.info("1")
+        
         # 학습
         model.train()
         train_loss = 0.0
-        logger.info("2")
+        
         for inputs, labels in train_loader:
-            logger.info("3")
+
             optimizer.zero_grad()
-            logger.info("4")
             outputs = model(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
@@ -537,7 +536,7 @@ def main():
     # 나머지 인자들은 기존과 동일
     parser.add_argument('--sequence_length', type=int, default=15, help='시퀀스 길이')
     parser.add_argument('--epochs', type=int, default=100, help='학습 에폭 수')
-    parser.add_argument('--hidden_size', type=int, default=32, help='LSTM 은닉층 크기')
+    parser.add_argument('--hidden_size', type=int, default=64, help='LSTM 은닉층 크기')
     parser.add_argument('--num_layers', type=int, default=2, help='LSTM 레이어 수')
     parser.add_argument('--save_data', action='store_true', help='처리된 데이터 저장 여부')
     parser.add_argument('--interp_step', type=float, default=0.001, help='보간 간격 (초 단위)')
