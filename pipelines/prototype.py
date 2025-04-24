@@ -281,16 +281,8 @@ def train_model(train_data, valid_data, args):
         tuple: (학습된 모델, 학습 이력)
     """
     # PyTorch 장치 설정
-    if torch.backends.mps.is_available():
-        device = torch.device("mps")
-        logger.info("M1 GPU(MPS)를 사용합니다.")
-    elif torch.cuda.is_available():
-        device = torch.device("cuda")
-        logger.info("CUDA GPU를 사용합니다.")
-    else:
-        device = torch.device("cpu")
-        logger.info("CPU를 사용합니다.")
-        logger.info(f"학습에 사용할 장치: {device}")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"학습에 사용할 장치: {device}")
     
     # 학습 데이터 준비
     X_train, y_train = prepare_sequence_data(train_data, sequence_length=args.sequence_length)
@@ -303,8 +295,8 @@ def train_model(train_data, valid_data, args):
 
     # 데이터 로더 생성
     train_dataset = TensorDataset(
-        torch.from_numpy(X_train).to(device), 
-        torch.from_numpy(y_train).to(device)
+        torch.from_numpy(X_train[:50000]).to(device), 
+        torch.from_numpy(y_train[:50000]).to(device)
     )
     valid_dataset = TensorDataset(
         torch.from_numpy(X_valid).to(device), 
@@ -352,9 +344,8 @@ def train_model(train_data, valid_data, args):
         for inputs, labels in train_loader:
             logger.info("3")
             optimizer.zero_grad()
-
+            logger.info("4")
             outputs = model(inputs)
-
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -544,9 +535,9 @@ def main():
     parser.add_argument('--plot_dir', type=str, default=os.path.join(base_dir, 'plots'), help='결과 시각화 저장 디렉토리')
 
     # 나머지 인자들은 기존과 동일
-    parser.add_argument('--sequence_length', type=int, default=50, help='시퀀스 길이')
+    parser.add_argument('--sequence_length', type=int, default=15, help='시퀀스 길이')
     parser.add_argument('--epochs', type=int, default=100, help='학습 에폭 수')
-    parser.add_argument('--hidden_size', type=int, default=128, help='LSTM 은닉층 크기')
+    parser.add_argument('--hidden_size', type=int, default=32, help='LSTM 은닉층 크기')
     parser.add_argument('--num_layers', type=int, default=2, help='LSTM 레이어 수')
     parser.add_argument('--save_data', action='store_true', help='처리된 데이터 저장 여부')
     parser.add_argument('--interp_step', type=float, default=0.001, help='보간 간격 (초 단위)')

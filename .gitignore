@@ -13,7 +13,7 @@ env/
 ENV/
 
 # 데이터 파일 (대용량 파일 제외)
-data
+/data
 final
 version
 MLOps
