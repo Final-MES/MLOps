@@ -20,7 +20,6 @@ MLOps
 # 모델 및 체크포인트
 models/*
 deployment/
-src/models/*
 !models/.gitkeep
 *.h5
 *.pkl
@@ -43,6 +42,7 @@ Thumbs.db
 *.log
 logs/
 output/
+
 
 # 머신러닝 & 데이터 사이언스 관련
 *.csv
