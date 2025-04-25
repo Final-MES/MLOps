@@ -281,16 +281,8 @@ def train_model(train_data, valid_data, args):
         tuple: (학습된 모델, 학습 이력)
     """
     # PyTorch 장치 설정
-    if torch.backends.mps.is_available():
-        device = torch.device("mps")
-        logger.info("M1 GPU(MPS)를 사용합니다.")
-    elif torch.cuda.is_available():
-        device = torch.device("cuda")
-        logger.info("CUDA GPU를 사용합니다.")
-    else:
-        device = torch.device("cpu")
-        logger.info("CPU를 사용합니다.")
-        logger.info(f"학습에 사용할 장치: {device}")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"학습에 사용할 장치: {device}")
     
     # 학습 데이터 준비
     X_train, y_train = prepare_sequence_data(train_data, sequence_length=args.sequence_length)
@@ -311,8 +303,8 @@ def train_model(train_data, valid_data, args):
         torch.from_numpy(y_valid).to(device)
     )
     
-    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
-    valid_loader = DataLoader(valid_dataset, batch_size=4, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    valid_loader = DataLoader(valid_dataset, batch_size=32, shuffle=False)
     
     # 모델 초기화
     input_size = X_train.shape[2]
@@ -328,7 +320,7 @@ def train_model(train_data, valid_data, args):
     
     # 손실 함수 및 옵티마이저
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.RAdam(model.parameters(), lr=1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=5, verbose=True
     )
@@ -344,17 +336,15 @@ def train_model(train_data, valid_data, args):
     logger.info(f"모델 학습 시작: 에폭 {num_epochs}, 은닉층 크기 {args.hidden_size}, 레이어 수 {args.num_layers}")
     
     for epoch in range(num_epochs):
-        logger.info("1")
+        
         # 학습
         model.train()
         train_loss = 0.0
-        logger.info("2")
+        
         for inputs, labels in train_loader:
-            logger.info("3")
+
             optimizer.zero_grad()
-
             outputs = model(inputs)
-
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -546,8 +536,8 @@ def main():
     # 나머지 인자들은 기존과 동일
     parser.add_argument('--sequence_length', type=int, default=50, help='시퀀스 길이')
     parser.add_argument('--epochs', type=int, default=100, help='학습 에폭 수')
-    parser.add_argument('--hidden_size', type=int, default=128, help='LSTM 은닉층 크기')
-    parser.add_argument('--num_layers', type=int, default=2, help='LSTM 레이어 수')
+    parser.add_argument('--hidden_size', type=int, default=50, help='LSTM 은닉층 크기')
+    parser.add_argument('--num_layers', type=int, default=1, help='LSTM 레이어 수')
     parser.add_argument('--save_data', action='store_true', help='처리된 데이터 저장 여부')
     parser.add_argument('--interp_step', type=float, default=0.001, help='보간 간격 (초 단위)')
 

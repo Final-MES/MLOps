@@ -1,6 +1,3 @@
-"""
-프로젝트 전역 설정 및 유틸리티 함수
-"""
 import os
 import sys
 import logging
@@ -10,13 +7,17 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# 로그 디렉토리 생성
+logs_dir = PROJECT_ROOT / 'logs'
+logs_dir.mkdir(parents=True, exist_ok=True)
+
 # 로깅 설정
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(os.path.join(PROJECT_ROOT, 'logs', 'app.log'))
+        logging.FileHandler(os.path.join(logs_dir, 'app.log'))
     ]
 )
 

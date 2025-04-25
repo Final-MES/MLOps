@@ -19,15 +19,21 @@ services:
     build:
       context: ..  # 프로젝트 루트 디렉토리
       dockerfile: docker/Dockerfile
+    runtime: nvidia 
     container_name: smart-factory-app
     volumes:
       - ..:/app  # 전체 프로젝트 디렉토리 마운트
       - ./../models:/app/models  # 로컬 models 디렉토리 마운트
       - ../data:/app/data      # 로컬 data 디렉토리 마운트
       - ./../plots:/app/plots
+    deploy:
+      resources:
+        limits:
+          memory: 8G
     environment:
       - PYTHONUNBUFFERED=1
       - MLFLOW_TRACKING_URI=http://localhost:5000
+      - NVIDIA_VISIBLE_DEVICES=all
     ports:
       - "8000:8000"  # FastAPI 포트
       - "8001:8001"  # Prometheus 메트릭 포트

@@ -1,5 +1,4 @@
-FROM python:3.9-slim
-
+FROM pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime
 # 작업 디렉토리 설정
 WORKDIR /app
 
