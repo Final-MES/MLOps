@@ -13,7 +13,7 @@ import time
 from prometheus_client import Counter, Histogram, Gauge
 import prometheus_client
 
-from src.models.lstm_model import LSTMModel
+from src.models.sensor.lstm_model import LSTMModel
 
 # 로깅 설정
 logging.basicConfig(

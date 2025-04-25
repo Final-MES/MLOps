@@ -13,7 +13,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from src.models.lstm_model import LSTMModel
+from src.models.sensor.lstm_model import LSTMModel
 from src.utils.paths import get_data_path, get_model_path, ensure_dir, get_project_paths
 
 # 로깅 설정

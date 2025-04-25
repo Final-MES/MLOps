@@ -19,6 +19,8 @@ version
 MLOps
 # 모델 및 체크포인트
 models/*
+deployment/
+src/models/*
 !models/.gitkeep
 *.h5
 *.pkl

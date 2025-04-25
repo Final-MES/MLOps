@@ -5,6 +5,6 @@
 """
 
 # 모델 모듈 등록
-from src.models.lstm_classifier import MultiSensorLSTMClassifier
+from src.models.sensor.lstm_classifier import MultiSensorLSTMClassifier
 
 __all__ = ['MultiSensorLSTMClassifier']

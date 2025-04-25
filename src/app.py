@@ -131,7 +131,7 @@ def main():
         
         try:
             from src.models.train import evaluate_model
-            from src.models.lstm_model import LSTMModel
+            from src.models.sensor.lstm_model import LSTMModel
             import torch
             import json
             

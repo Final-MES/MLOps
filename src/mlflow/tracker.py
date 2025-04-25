@@ -9,7 +9,7 @@ from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
 import logging
 
-from src.models.lstm_model import LSTMModel
+from src.models.sensor.lstm_model import LSTMModel
 
 # 로깅 설정
 logging.basicConfig(

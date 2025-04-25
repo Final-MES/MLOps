@@ -22,7 +22,7 @@ from src.utils.paths import get_project_paths, get_data_path, get_model_path, en
 
 # 프로젝트 모듈 임포트
 from src.data.preprocessor import SensorDataPreprocessor  # 데이터 전처리용 클래스
-from src.models.multivariate_model import prepare_multivariate_data, train_multivariate_model, MultivariateLSTMClassifier  # 모델 학습 관련 함수와 클래스
+from src.models.sensor.multivariate_model import prepare_multivariate_data, train_multivariate_model, MultivariateLSTMClassifier  # 모델 학습 관련 함수와 클래스
 from src.models.evaluation import evaluate_multivariate_model, analyze_misclassifications, feature_importance_analysis  # 모델 평가 관련 함수
 
 def main():

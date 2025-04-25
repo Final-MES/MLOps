@@ -25,7 +25,7 @@ if project_root not in sys.path:
 
 # 모듈 임포트
 from src.data.sensor_processor import SensorDataProcessor, prepare_sequence_data
-from src.models.lstm_classifier import MultiSensorLSTMClassifier
+from src.models.sensor.lstm_classifier import MultiSensorLSTMClassifier
 from src.utils.training import (
     prepare_dataloaders, train_model, evaluate_model,
     save_model_info, save_evaluation_result
@@ -108,13 +108,9 @@ def print_status():
         print(f"✅ 전처리된 데이터: 학습 {train_data.shape}, 검증 {valid_data.shape}, 테스트 {test_data.shape}")
     else:
         print("❌ 전처리된 데이터: 없음")
-    
-    # 모델 상태
-    if STATE['model'] is not None:
-        model_info = STATE['model'].get_model_info()
-        print(f"✅ 모델: {model_info['model_type']} (은닉층 {model_info['hidden_size']}, 레이어 {model_info['num_layers']})")
-    else:
-        print("❌ 모델: 없음")
+    # 모델 파라미터
+    print(f"모델 : (설정된 파라미터: 은닉층 {STATE['model_params']['hidden_size']}, "
+          f"레이어 {STATE['model_params']['num_layers']}, 드롭아웃 {STATE['model_params']['dropout_rate']})")
     
     # 학습 상태
     if STATE['training_history'] is not None:

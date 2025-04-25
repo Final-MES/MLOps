@@ -21,7 +21,7 @@ sys.path.insert(0, project_root)
 
 # 모듈 임포트
 from src.data.sensor_processor import SensorDataProcessor, prepare_sequence_data
-from src.models.lstm_classifier import MultiSensorLSTMClassifier
+from src.models.sensor.lstm_classifier import MultiSensorLSTMClassifier
 from src.utils.training import (
     prepare_dataloaders, train_model, evaluate_model,
     save_model_info, save_evaluation_result
