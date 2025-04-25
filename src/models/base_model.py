@@ -1,7 +1,7 @@
 # src/models/base_model.py - 모델 기본 클래스
-import torch
+import torch.nn as nn
 from typing import Dict, Any
-
+import logging
 class BaseModel(nn.Module):
     """모든 모델의 기본 클래스"""
     
