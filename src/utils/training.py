@@ -16,7 +16,7 @@ from typing import Dict, List, Tuple, Any, Optional, Union
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.models.sensor.lstm_classifier import MultiSensorLSTMClassifier
-from src.data.sensor_processor import INVERSE_STATE_MAPPING
+from src.data.sensor.sensor_processor import INVERSE_STATE_MAPPING
 
 # 로깅 설정
 logger = logging.getLogger(__name__)

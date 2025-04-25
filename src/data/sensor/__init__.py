@@ -5,6 +5,6 @@
 """
 
 # 데이터 처리 모듈 등록
-from src.data.sensor_processor import SensorDataProcessor, prepare_sequence_data, STATE_MAPPING, INVERSE_STATE_MAPPING
+from src.data.sensor.sensor_processor import SensorDataProcessor, prepare_sequence_data, STATE_MAPPING, INVERSE_STATE_MAPPING
 
 __all__ = ['SensorDataProcessor', 'prepare_sequence_data', 'STATE_MAPPING', 'INVERSE_STATE_MAPPING']
