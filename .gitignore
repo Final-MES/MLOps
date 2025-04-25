@@ -49,7 +49,7 @@ output/
 *.xlsx
 *.parquet
 *.sqlite
-
+*.png
 # 보안 및 민감한 정보
 .env
 *.env
