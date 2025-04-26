@@ -62,7 +62,7 @@ class SensorCLI(BaseCLI):
         
         # 모델 파라미터
         self.model_params = {
-            'sequence_length': 50,
+            'sequence_length': 100,
             'hidden_size': 64,
             'num_layers': 2,
             'dropout_rate': 0.3
@@ -501,7 +501,7 @@ class SensorCLI(BaseCLI):
             )
             
             # 모델 저장
-            torch.save(model.self.state_dict(), model_save_path)
+            torch.save(model.state_dict(), model_save_path)
             self.state['current_model_path'] = model_save_path
             self.show_message(f"\n모델이 저장되었습니다: {model_save_path}")
             
@@ -520,7 +520,7 @@ class SensorCLI(BaseCLI):
     
     def evaluate_model_menu(self) -> None:
         """모델 평가 메뉴"""
-        BaseCLI.self.print_header("모델 평가")
+        self.print_header("모델 평가")
     
     # 모델 확인
         if self.state['model'] is None:
@@ -879,13 +879,13 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
             suggested_seq_len = max(suggested_seq_len, 10)  # 최소값 확보
             # 5의 배수로 조정
             suggested_seq_len = (suggested_seq_len // 5) * 5
-            self.state['model_params']['sequence_length'] = suggested_seq_len
+            self.model_params['sequence_length'] = suggested_seq_len
         
             print("\n✅ 데이터 로드가 완료되었습니다.")
             print(f"- 학습 데이터: {train_data.shape} 샘플")
             print(f"- 검증 데이터: {valid_data.shape} 샘플")
             print(f"- 테스트 데이터: {test_data.shape} 샘플")
-            print(f"- 제안된 시퀀스 길이: {self.state['model_params']['sequence_length']}")
+            print(f"- 제안된 시퀀스 길이: {suggested_seq_len}")
         
         except Exception as e:
             print(f"\n❌ 오류: 데이터 로드 중 예외가 발생했습니다: {str(e)}")
@@ -920,7 +920,7 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
     
         # 사용자 선택
         while True:
-            choice = BaseCLI.BaseCLI.get_input("\n로드할 모델 번호를 입력하세요", "1")
+            choice = self.get_input("\n로드할 모델 번호를 입력하세요", "1")
             try:
                 choice_idx = int(choice) - 1
                 if 0 <= choice_idx < len(model_files):
@@ -962,9 +962,9 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
                 model_info = json.load(f)
         
             # 모델 파라미터 업데이트
-            self.model_params['hidden_size'] = model_info.get('hidden_size', self.state['model_params']['hidden_size'])
-            self.model_params['num_layers'] = model_info.get('num_layers', self.state['model_params']['num_layers'])
-            self.model_params['sequence_length'] = model_info.get('sequence_length', self.state['model_params']['sequence_length'])
+            self.model_params['hidden_size'] = model_info.get('hidden_size', self.model_params['hidden_size'])
+            self.model_params['num_layers'] = model_info.get('num_layers', self.model_params['num_layers'])
+            self.model_params['sequence_length'] = model_info.get('sequence_length', self.model_params['sequence_length'])
         try:
             print(f"\n모델 '{selected_model}' 로드 중...")
         
@@ -979,7 +979,7 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
         
             # 모델 가중치 로드
             model_path = os.path.join(model_dir, selected_model)
-            model.load_self.state_dict(torch.load(model_path, map_location=self.state['device']))
+            model.state_dict(torch.load(model_path, map_location=self.state['device']))
             model.eval()
         
             # 상태 업데이트
@@ -992,7 +992,7 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
             print(f"- 은닉층 크기: {model_info['hidden_size']}")
             print(f"- LSTM 레이어 수: {model_info['num_layers']}")
             print(f"- 출력 클래스 수: {model_info['num_classes']}")
-            print(f"- 시퀀스 길이: {self.state['model_params']['sequence_length']}")
+            print(f"- 시퀀스 길이: {model_info['sequence_length']}")
         
         except Exception as e:
             print(f"\n❌ 오류: 모델 로드 중 예외가 발생했습니다: {str(e)}")
