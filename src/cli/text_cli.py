@@ -17,7 +17,7 @@ import numpy as np
 from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
 import shutil
-
+import pickle
 # 프로젝트 루트 경로 추가
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
@@ -1040,9 +1040,9 @@ class TextCLI(BaseCLI):
         
         self.wait_for_user()
     
-    def tokenizer_save_load_menu() -> None:
+    def tokenizer_save_load_menu(self) -> None:
         """토크나이저 저장/로드 메뉴"""
-        print_header("토크나이저 저장/로드")
+        self.print_header("토크나이저 저장/로드")
     
         # 메뉴 옵션
         options = ["토크나이저 저장", "토크나이저 로드", "뒤로 가기"]
@@ -1051,27 +1051,27 @@ class TextCLI(BaseCLI):
             print("토크나이저를 저장하거나 로드합니다.\n")
         
             # 현재 상태 출력
-            if STATE['tokenizer'] is not None:
-                tokenizer_type = STATE['tokenizer_type'].upper()
-                vocab_size = len(STATE['tokenizer'].vocab) if hasattr(STATE['tokenizer'], 'vocab') else "알 수 없음"
+            if self.state['tokenizer'] is not None:
+                tokenizer_type = self.state['tokenizer_type'].upper()
+                vocab_size = len(self.state['tokenizer'].vocab) if hasattr(self.state['tokenizer'], 'vocab') else "알 수 없음"
                 print(f"현재 토크나이저: {tokenizer_type} (어휘 크기: {vocab_size})")
             else:
                 print("현재 토크나이저: 없음")
             
-            if STATE['current_tokenizer_path'] is not None:
-                print(f"저장된 토크나이저 경로: {STATE['current_tokenizer_path']}")
+            if self.state['current_tokenizer_path'] is not None:
+                print(f"저장된 토크나이저 경로: {self.state['current_tokenizer_path']}")
 
             # 옵션 선택
             print("\n옵션을 선택하세요:")
             for i, option in enumerate(options):
                 print(f"{i+1}. {option}")
             
-            choice = get_input("\n선택", "3")
+            choice = BaseCLI.get_input("\n선택", "3")
         
             if choice == "1":
-                save_tokenizer()
+                self.save_tokenizer()
             elif choice == "2":
-                load_tokenizer()
+                self.load_tokenizer()
             elif choice == "3":
                 break
             else:
@@ -1079,49 +1079,49 @@ class TextCLI(BaseCLI):
         
         print("\n")
 
-def save_tokenizer() -> None:
-    """토크나이저 저장 기능"""
-    # 토크나이저 확인
-    if STATE['tokenizer'] is None:
-        print("❌ 오류: 저장할 토크나이저가 없습니다. 먼저 토크나이저를 초기화하세요.")
-        input("\n계속하려면 Enter 키를 누르세요...")
-        return
+    def save_tokenizer(self) -> None:
+        """토크나이저 저장 기능"""
+        # 토크나이저 확인
+        if self.state['tokenizer'] is None:
+            print("❌ 오류: 저장할 토크나이저가 없습니다. 먼저 토크나이저를 초기화하세요.")
+            input("\n계속하려면 Enter 키를 누르세요...")
+            return
     
-    # 저장 디렉토리 확인
-    tokenizer_dir = DEFAULT_DIRS['tokenizer_dir']
-    os.makedirs(tokenizer_dir, exist_ok=True)
+        # 저장 디렉토리 확인
+        tokenizer_dir = self.DEFAULT_DIRS['tokenizer_dir']
+        os.makedirs(tokenizer_dir, exist_ok=True)
     
-    # 파일명 설정
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    tokenizer_type = STATE['tokenizer_type']
-    vocab_size = STATE['tokenizer_params']['vocab_size']
-    default_filename = f"{tokenizer_type}_tokenizer_{vocab_size}_{timestamp}.pkl"
+        # 파일명 설정
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        tokenizer_type = self.state['tokenizer_type']
+        vocab_size = self.state['tokenizer_params']['vocab_size']
+        default_filename = f"{tokenizer_type}_tokenizer_{vocab_size}_{timestamp}.pkl"
     
-    tokenizer_path = get_input("저장할 파일 경로", os.path.join(tokenizer_dir, default_filename))
+        tokenizer_path = self.get_input("저장할 파일 경로", os.path.join(tokenizer_dir, default_filename))
     
-    try:
-        # 토크나이저 저장
-        if hasattr(STATE['tokenizer'], 'save_to_file'):
-            # 내장 저장 메서드가 있는 경우
-            STATE['tokenizer'].save_to_file(tokenizer_path)
-        else:
-            # pickle로 직접 저장
-            with open(tokenizer_path, 'wb') as f:
-                pickle.dump(STATE['tokenizer'], f)
+        try:
+            # 토크나이저 저장
+            if hasattr(self.state['tokenizer'], 'save_to_file'):
+                # 내장 저장 메서드가 있는 경우
+                self.state['tokenizer'].save_to_file(tokenizer_path)
+            else:
+                # pickle로 직접 저장
+                with open(tokenizer_path, 'wb') as f:
+                    pickle.dump(self.state['tokenizer'], f)
         
-        # 상태 업데이트
-        STATE['current_tokenizer_path'] = tokenizer_path
+            # 상태 업데이트
+            self.state['current_tokenizer_path'] = tokenizer_path
         
-        print(f"\n✅ 토크나이저가 '{tokenizer_path}'에 저장되었습니다.")
+            print(f"\n✅ 토크나이저가 '{tokenizer_path}'에 저장되었습니다.")
         
-        # 메타데이터 저장 (선택적)
-        save_metadata = get_yes_no_input("토크나이저 메타데이터도 저장하시겠습니까?")
-        if save_metadata:
-            metadata_path = tokenizer_path.replace('.pkl', '_metadata.json')
-            metadata = {
-                'tokenizer_type': STATE['tokenizer_type'],
-                'vocab_size': STATE['tokenizer_params']['vocab_size'],
-                'min_frequency': STATE['tokenizer_params']['min_frequency'],
+            # 메타데이터 저장 (선택적)
+            save_metadata = get_yes_no_input("토크나이저 메타데이터도 저장하시겠습니까?")
+            if save_metadata:
+                metadata_path = tokenizer_path.replace('.pkl', '_metadata.json')
+                metadata = {
+                    'tokenizer_type': self.state['tokenizer_type'],
+                    'vocab_size': self.state['tokenizer_params']['vocab_size'],
+                'min_frequency': self.state['tokenizer_params']['min_frequency'],
                 'max_sequence_length': STATE['tokenizer_params']['max_sequence_length'],
                 'saved_at': time.strftime("%Y-%m-%d %H:%M:%S"),
                 'vocab_count': len(STATE['tokenizer'].vocab) if hasattr(STATE['tokenizer'], 'vocab') else "unknown"
@@ -1132,221 +1132,171 @@ def save_tokenizer() -> None:
             
             print(f"메타데이터가 '{metadata_path}'에 저장되었습니다.")
         
-    except Exception as e:
-        print(f"\n❌ 오류: 토크나이저 저장 중 예외가 발생했습니다: {str(e)}")
-        logger.exception("토크나이저 저장 중 예외 발생")
+        except Exception as e:
+            print(f"\n❌ 오류: 토크나이저 저장 중 예외가 발생했습니다: {str(e)}")
+            logger.exception("토크나이저 저장 중 예외 발생")
     
-    input("\n계속하려면 Enter 키를 누르세요...")
+            input("\n계속하려면 Enter 키를 누르세요...")
 
-def load_tokenizer() -> None:
-    """토크나이저 로드 기능"""
-    # 저장 디렉토리 확인
-    tokenizer_dir = DEFAULT_DIRS['tokenizer_dir']
+    def load_tokenizer(save) -> None:
+        """토크나이저 로드 기능"""
+        # 저장 디렉토리 확인
+        tokenizer_dir = DEFAULT_DIRS['tokenizer_dir']
     
-    if not os.path.exists(tokenizer_dir):
-        print(f"❌ 오류: 토크나이저 디렉토리 '{tokenizer_dir}'가 존재하지 않습니다.")
-        input("\n계속하려면 Enter 키를 누르세요...")
-        return
+        if not os.path.exists(tokenizer_dir):
+            print(f"❌ 오류: 토크나이저 디렉토리 '{tokenizer_dir}'가 존재하지 않습니다.")
+            input("\n계속하려면 Enter 키를 누르세요...")
+            return
     
-    # 토크나이저 파일 목록
-    tokenizer_files = [f for f in os.listdir(tokenizer_dir) if f.endswith('.pkl') and 'tokenizer' in f]
+        # 토크나이저 파일 목록
+        tokenizer_files = [f for f in os.listdir(tokenizer_dir) if f.endswith('.pkl') and 'tokenizer' in f]
     
-    if not tokenizer_files:
-        print(f"❌ 오류: '{tokenizer_dir}' 디렉토리에 토크나이저 파일이 없습니다.")
-        input("\n계속하려면 Enter 키를 누르세요...")
-        return
+        if not tokenizer_files:
+            print(f"❌ 오류: '{tokenizer_dir}' 디렉토리에 토크나이저 파일이 없습니다.")
+            input("\n계속하려면 Enter 키를 누르세요...")
+            return
     
     # 파일 목록 출력
-    print("\n저장된 토크나이저 목록:")
-    tokenizer_files.sort(reverse=True)  # 최신 파일 먼저
+        print("\n저장된 토크나이저 목록:")
+        tokenizer_files.sort(reverse=True)  # 최신 파일 먼저
     
-    for i, file in enumerate(tokenizer_files):
-        # 메타데이터 파일이 있으면 추가 정보 표시
-        metadata_path = os.path.join(tokenizer_dir, file.replace('.pkl', '_metadata.json'))
-        info = ""
+        for i, file in enumerate(tokenizer_files):
+            # 메타데이터 파일이 있으면 추가 정보 표시
+            metadata_path = os.path.join(tokenizer_dir, file.replace('.pkl', '_metadata.json'))
+            info = ""
         
+            if os.path.exists(metadata_path):
+                try:
+                    with open(metadata_path, 'r', encoding='utf-8') as f:
+                        metadata = json.load(f)
+                    info = f"(타입: {metadata.get('tokenizer_type', '알 수 없음').upper()}, " \
+                           f"어휘 크기: {metadata.get('vocab_count', '알 수 없음')})"
+                except:
+                    pass
+        
+            # 파일 크기 및 수정 날짜
+            file_path = os.path.join(tokenizer_dir, file)
+            file_size = os.path.getsize(file_path) // 1024  # KB
+            mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(os.path.getmtime(file_path)))
+        
+            print(f"{i+1}. {file} {info} ({file_size}KB, {mod_time})")
+    
+        # 파일 선택
+        while True:
+            try:
+                choice = get_input("\n로드할 토크나이저 번호", "1")
+                choice_idx = int(choice) - 1
+            
+                if 0 <= choice_idx < len(tokenizer_files):
+                    selected_file = tokenizer_files[choice_idx]
+                    break
+                else:
+                    print(f"유효한 번호를 입력하세요 (1-{len(tokenizer_files)})")
+            except ValueError:
+                print("숫자를 입력하세요")
+    
+        # 토크나이저 타입 결정
+        selected_path = os.path.join(tokenizer_dir, selected_file)
+    
+        # 메타데이터에서 타입 정보 추출 시도
+        tokenizer_type = 'basic'  # 기본값
+        metadata_path = selected_path.replace('.pkl', '_metadata.json')
+    
         if os.path.exists(metadata_path):
             try:
                 with open(metadata_path, 'r', encoding='utf-8') as f:
                     metadata = json.load(f)
-                info = f"(타입: {metadata.get('tokenizer_type', '알 수 없음').upper()}, " \
-                       f"어휘 크기: {metadata.get('vocab_count', '알 수 없음')})"
+                tokenizer_type = metadata.get('tokenizer_type', 'basic')
             except:
                 pass
-        
-        # 파일 크기 및 수정 날짜
-        file_path = os.path.join(tokenizer_dir, file)
-        file_size = os.path.getsize(file_path) // 1024  # KB
-        mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(os.path.getmtime(file_path)))
-        
-        print(f"{i+1}. {file} {info} ({file_size}KB, {mod_time})")
     
-    # 파일 선택
-    while True:
         try:
-            choice = get_input("\n로드할 토크나이저 번호", "1")
-            choice_idx = int(choice) - 1
-            
-            if 0 <= choice_idx < len(tokenizer_files):
-                selected_file = tokenizer_files[choice_idx]
-                break
+            # 토크나이저 로드 방법 결정
+            if 'wordpiece' in selected_file:
+                tokenizer_type = 'wordpiece'
+            elif 'bpe' in selected_file:
+                tokenizer_type = 'bpe'
+        
+            # 토크나이저 타입에 따라 로드
+            if hasattr(Tokenizer, 'load_from_file'):
+                # 내장 로드 메서드가 있는 경우
+                if tokenizer_type == 'wordpiece':
+                    tokenizer = WordPieceTokenizer.load_from_file(selected_path)
+                elif tokenizer_type == 'bpe':
+                    tokenizer = BPETokenizer.load_from_file(selected_path)
+                else:
+                    tokenizer = Tokenizer.load_from_file(selected_path)
             else:
-                print(f"유효한 번호를 입력하세요 (1-{len(tokenizer_files)})")
+                # pickle로 직접 로드
+                with open(selected_path, 'rb') as f:
+                    tokenizer = pickle.load(f)
+        
+        # 상태 업데이트
+            self.state['tokenizer'] = tokenizer
+            self.state['tokenizer_type'] = tokenizer_type
+            self.state['current_tokenizer_path'] = selected_path
+        
+            print(f"\n✅ 토크나이저가 '{selected_path}'에서 로드되었습니다.")
+        
+            # 토크나이저 정보 출력
+            vocab_size = len(tokenizer.vocab) if hasattr(tokenizer, 'vocab') else "알 수 없음"
+            print(f"토크나이저 타입: {tokenizer_type.upper()}")
+            print(f"어휘 크기: {vocab_size}")
+        
+        except Exception as e:
+            print(f"\n❌ 오류: 토크나이저 로드 중 예외가 발생했습니다: {str(e)}")
+            logger.exception("토크나이저 로드 중 예외 발생")
+    
+        input("\n계속하려면 Enter 키를 누르세요...")
+
+    def system_config_menu(self) -> None:
+        """시스템 설정 메뉴"""
+        self.print_header("시스템 설정")
+    
+        print("시스템 설정을 변경합니다.\n")
+    
+        # 디렉토리 설정
+        print("디렉토리 설정:")
+        for dir_name, dir_path in DEFAULT_DIRS.items():
+            new_path = self.get_input(f"{dir_name} 디렉토리", dir_path)
+            DEFAULT_DIRS[dir_name] = new_path
+            os.makedirs(new_path, exist_ok=True)
+    
+        # 로깅 레벨 설정
+        print("\n로깅 레벨 설정:")
+        log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        print("옵션을 선택하세요:")
+        for i, level in enumerate(log_levels):
+            print(f"{i+1}. {level}")
+    
+        try:
+            choice = self.get_input("\n로깅 레벨", "2")  # INFO가 기본값
+            choice_idx = int(choice) - 1
+        
+            if 0 <= choice_idx < len(log_levels):
+                selected_level = log_levels[choice_idx]
+
+                # 로깅 레벨 설정
+                numeric_level = getattr(logging, selected_level)
+                logger.setLevel(numeric_level)
+            
+                # 모든 핸들러의 레벨 설정
+                for handler in logger.handlers:
+                    handler.setLevel(numeric_level)
+            
+                print(f"\n✅ 로깅 레벨이 '{selected_level}'로 설정되었습니다.")
+            else:
+                print(f"유효한 번호를 입력하세요 (1-{len(log_levels)})")
         except ValueError:
             print("숫자를 입력하세요")
     
-    # 토크나이저 타입 결정
-    selected_path = os.path.join(tokenizer_dir, selected_file)
+        print(f"\n✅ 시스템 설정이 변경되었습니다.")
+        for dir_name, dir_path in DEFAULT_DIRS.items():
+            print(f"- {dir_name} 디렉토리: {dir_path}")
     
-    # 메타데이터에서 타입 정보 추출 시도
-    tokenizer_type = 'basic'  # 기본값
-    metadata_path = selected_path.replace('.pkl', '_metadata.json')
-    
-    if os.path.exists(metadata_path):
-        try:
-            with open(metadata_path, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
-            tokenizer_type = metadata.get('tokenizer_type', 'basic')
-        except:
-            pass
-    
-    try:
-        # 토크나이저 로드 방법 결정
-        if 'wordpiece' in selected_file:
-            tokenizer_type = 'wordpiece'
-        elif 'bpe' in selected_file:
-            tokenizer_type = 'bpe'
-        
-        # 토크나이저 타입에 따라 로드
-        if hasattr(Tokenizer, 'load_from_file'):
-            # 내장 로드 메서드가 있는 경우
-            if tokenizer_type == 'wordpiece':
-                tokenizer = WordPieceTokenizer.load_from_file(selected_path)
-            elif tokenizer_type == 'bpe':
-                tokenizer = BPETokenizer.load_from_file(selected_path)
-            else:
-                tokenizer = Tokenizer.load_from_file(selected_path)
-        else:
-            # pickle로 직접 로드
-            with open(selected_path, 'rb') as f:
-                tokenizer = pickle.load(f)
-        
-        # 상태 업데이트
-        STATE['tokenizer'] = tokenizer
-        STATE['tokenizer_type'] = tokenizer_type
-        STATE['current_tokenizer_path'] = selected_path
-        
-        print(f"\n✅ 토크나이저가 '{selected_path}'에서 로드되었습니다.")
-        
-        # 토크나이저 정보 출력
-        vocab_size = len(tokenizer.vocab) if hasattr(tokenizer, 'vocab') else "알 수 없음"
-        print(f"토크나이저 타입: {tokenizer_type.upper()}")
-        print(f"어휘 크기: {vocab_size}")
-        
-    except Exception as e:
-        print(f"\n❌ 오류: 토크나이저 로드 중 예외가 발생했습니다: {str(e)}")
-        logger.exception("토크나이저 로드 중 예외 발생")
-    
-    input("\n계속하려면 Enter 키를 누르세요...")
+        input("\n계속하려면 Enter 키를 누르세요...")
 
-def system_config_menu() -> None:
-    """시스템 설정 메뉴"""
-    print_header("시스템 설정")
-    
-    print("시스템 설정을 변경합니다.\n")
-    
-    # 디렉토리 설정
-    print("디렉토리 설정:")
-    for dir_name, dir_path in DEFAULT_DIRS.items():
-        new_path = get_input(f"{dir_name} 디렉토리", dir_path)
-        DEFAULT_DIRS[dir_name] = new_path
-        os.makedirs(new_path, exist_ok=True)
-    
-    # 로깅 레벨 설정
-    print("\n로깅 레벨 설정:")
-    log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-    print("옵션을 선택하세요:")
-    for i, level in enumerate(log_levels):
-        print(f"{i+1}. {level}")
-    
-    try:
-        choice = get_input("\n로깅 레벨", "2")  # INFO가 기본값
-        choice_idx = int(choice) - 1
-        
-        if 0 <= choice_idx < len(log_levels):
-            selected_level = log_levels[choice_idx]
-            
-            # 로깅 레벨 설정
-            numeric_level = getattr(logging, selected_level)
-            logger.setLevel(numeric_level)
-            
-            # 모든 핸들러의 레벨 설정
-            for handler in logger.handlers:
-                handler.setLevel(numeric_level)
-            
-            print(f"\n✅ 로깅 레벨이 '{selected_level}'로 설정되었습니다.")
-        else:
-            print(f"유효한 번호를 입력하세요 (1-{len(log_levels)})")
-    except ValueError:
-        print("숫자를 입력하세요")
-    
-    print(f"\n✅ 시스템 설정이 변경되었습니다.")
-    for dir_name, dir_path in DEFAULT_DIRS.items():
-        print(f"- {dir_name} 디렉토리: {dir_path}")
-    
-    input("\n계속하려면 Enter 키를 누르세요...")
 
-def main_menu() -> None:
-    """메인 메뉴 표시"""
-    menu_options = [
-        "데이터 로드",
-        "전처리 설정",
-        "텍스트 전처리",
-        "토큰화 설정",
-        "텍스트 토큰화",
-        "데이터 분할",
-        "데이터 시각화",
-        "토크나이저 저장/로드",
-        "시스템 설정",
-        "종료"
-    ]
-    
-    while True:
-        print_header("텍스트 데이터 처리 시스템")
-        print("텍스트 데이터 처리 시스템에 오신 것을 환영합니다.")
-        print("아래 메뉴에서 원하는 작업을 선택하세요.\n")
-        
-        for i, option in enumerate(menu_options):
-            print(f"{i+1}. {option}")
-        
-        print_status()
-        
-        choice = get_input("\n메뉴 선택", "10")  # 기본값은 종료
-        
-        if choice == "1":
-            load_data_menu()
-        elif choice == "2":
-            preprocessing_settings_menu()
-        elif choice == "3":
-            preprocess_text_menu()
-        elif choice == "4":
-            tokenization_settings_menu()
-        elif choice == "5":
-            tokenize_text_menu()
-        elif choice == "6":
-            split_data_menu()
-        elif choice == "7":
-            visualize_data_menu()
-        elif choice == "8":
-            tokenizer_save_load_menu()
-        elif choice == "9":
-            system_config_menu()
-        elif choice == "10":
-            print("\n프로그램을 종료합니다. 감사합니다!")
-            break
-        else:
-            print("\n유효하지 않은 선택입니다. 다시 시도하세요.")
-            input("계속하려면 Enter 키를 누르세요...")
 def ensure_dirs() -> None:
     """필요한 디렉토리 생성"""
     for dir_path in [
@@ -1357,7 +1307,7 @@ def ensure_dirs() -> None:
         os.path.join(project_root, 'logs')
     ]:
         os.makedirs(dir_path, exist_ok=True)
-        
+
 def main():
     """메인 함수"""
     try:
