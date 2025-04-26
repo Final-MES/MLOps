@@ -1347,7 +1347,17 @@ def main_menu() -> None:
         else:
             print("\n유효하지 않은 선택입니다. 다시 시도하세요.")
             input("계속하려면 Enter 키를 누르세요...")
-
+def ensure_dirs() -> None:
+    """필요한 디렉토리 생성"""
+    for dir_path in [
+        os.path.join(project_root, 'data', 'text'),
+        os.path.join(project_root, 'data', 'processed', 'text'),
+        os.path.join(project_root, 'models', 'text'),
+        os.path.join(project_root, 'plots', 'text'),
+        os.path.join(project_root, 'logs')
+    ]:
+        os.makedirs(dir_path, exist_ok=True)
+        
 def main():
     """메인 함수"""
     try:
