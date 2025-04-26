@@ -31,7 +31,8 @@ def main():
     
     if choice == "1":
         from src.cli.sensor_cli import SensorCLI
-        SensorCLI.main()
+        cli = SensorCLI()  # 인스턴스 생성
+        cli.run()  # 인스턴스 메서드 호출
     elif choice == "2":
         from src.cli.image_cli import main as image_main
         image_main()

@@ -200,6 +200,16 @@ class BaseCLI(ABC):
         print(f"\n❌ 오류: {message}")
         logger.error(message)
     
+    def show_message(self, message: str) -> None:
+        """
+        일반 메시지 출력
+    
+        Args:
+        message: 출력할 메시지
+        """
+        print(message)
+        logger.info(message)
+    
     def show_success(self, message: str) -> None:
         """
         성공 메시지 출력
@@ -209,6 +219,7 @@ class BaseCLI(ABC):
         """
         print(f"\n✅ 성공: {message}")
         logger.info(message)
+    
     
     def show_warning(self, message: str) -> None:
         """

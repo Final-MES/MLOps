@@ -142,7 +142,7 @@ class SensorCLI(BaseCLI):
     def main_menu(self) -> None:
         """메인 메뉴 표시"""
         while True:
-            self.BaseCLI.print_header("다중 센서 데이터 분류 시스템")
+            self.print_header("다중 센서 데이터 분류 시스템")
             print("머신러닝 파이프라인 관리 시스템에 오신 것을 환영합니다.")
             print("아래 메뉴에서 원하는 작업을 선택하세요.\n")
             
@@ -183,13 +183,13 @@ class SensorCLI(BaseCLI):
     
     def preprocess_data_menu(self) -> None:
         """데이터 전처리 메뉴"""
-        self.BaseCLI.print_header("데이터 전처리")
+        self.print_header("데이터 전처리")
         
         print("센서 데이터를 로드하고 전처리합니다.")
         print("이 단계에서는 데이터 파일 로드, 보간, 이동 평균 필터링을 수행합니다.\n")
         
         # 데이터 디렉토리 설정
-        data_dir = self.BaseCLI.get_input("데이터 디렉토리 경로", self.paths['data_dir'])
+        data_dir = self.get_input("데이터 디렉토리 경로", self.paths['data_dir'])
         if not os.path.exists(data_dir):
             self.show_warning(f"디렉토리 '{data_dir}'이(가) 존재하지 않습니다.")
             create_dir = self.get_yes_no_input("디렉토리를 생성하시겠습니까?")
@@ -203,7 +203,7 @@ class SensorCLI(BaseCLI):
         
         # 전처리 매개변수 설정
         print("\n전처리 매개변수 설정:")
-        self.preprocessing_params['file_prefix'] = self.BaseCLI.get_input(
+        self.preprocessing_params['file_prefix'] = self.get_input(
             "데이터 파일 접두사", self.preprocessing_params['file_prefix']
         )
         self.preprocessing_params['interp_step'] = self.get_numeric_input(
@@ -314,7 +314,7 @@ class SensorCLI(BaseCLI):
     
     def model_params_menu(self) -> None:
         """모델 파라미터 설정 메뉴"""
-        self.BaseCLI.print_header("모델 파라미터 설정")
+        self.print_header("모델 파라미터 설정")
         
         print("LSTM 분류 모델의 파라미터를 설정합니다.\n")
         
@@ -377,7 +377,7 @@ class SensorCLI(BaseCLI):
     
     def train_model_menu(self) -> None:
         """모델 학습 메뉴"""
-        self.BaseCLI.print_header("모델 학습")
+        self.print_header("모델 학습")
         
         # 데이터 확인
         if self.state['preprocessed_data'] is None:
@@ -520,7 +520,7 @@ class SensorCLI(BaseCLI):
     
     def evaluate_model_menu(self) -> None:
         """모델 평가 메뉴"""
-        BaseCLI.BaseCLI.print_header("모델 평가")
+        BaseCLI.self.print_header("모델 평가")
     
     # 모델 확인
         if self.state['model'] is None:
@@ -620,7 +620,7 @@ class SensorCLI(BaseCLI):
 
     def deploy_model_menu(self) -> None:
         """모델 배포 메뉴"""
-        BaseCLI.BaseCLI.print_header("모델 배포")
+        self.print_header("모델 배포")
     
         # 모델 확인
         if self.state['model'] is None or self.paths['current_model_path'] is None:
@@ -786,7 +786,7 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
 
     def load_data_menu(self) -> None:
         """저장된 데이터 로드 메뉴"""
-        BaseCLI.print_header("저장된 데이터 로드")
+        self.print_header("저장된 데이터 로드")
     
         print("이전에 저장한 전처리 데이터를 로드합니다.\n")
 
@@ -847,7 +847,7 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
     
         # 사용자 선택
         while True:
-            choice = BaseCLI.BaseCLI.get_input("\n로드할 데이터 세트 번호를 입력하세요", "1")
+            choice = self.get_input("\n로드할 데이터 세트 번호를 입력하세요", "1")
             try:
                 choice_idx = int(choice) - 1
                 if 0 <= choice_idx < len(timestamps):
@@ -894,7 +894,7 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
         input("\n계속하려면 Enter 키를 누르세요...")
     def load_model_menu(self) -> None:
         """저장된 모델 로드 메뉴"""
-        BaseCLI.print_header("저장된 모델 로드")
+        self.print_header("저장된 모델 로드")
     
         print("이전에 저장한 모델을 로드합니다.\n")
     
@@ -1002,7 +1002,7 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
 
     def system_config_menu(self) -> None:
         """시스템 설정 메뉴"""
-        BaseCLI.print_header("시스템 설정")
+        self.print_header("시스템 설정")
     
         print("시스템 설정을 변경합니다.\n")
     
@@ -1015,7 +1015,7 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
     
         # 장치 설정
         if torch.cuda.is_available():
-            use_gpu = BaseCLI.get_yes_no_input("\nGPU를 사용하시겠습니까?", default=True)
+            use_gpu = self.get_yes_no_input("\nGPU를 사용하시겠습니까?", default=True)
             self.state['device'] = torch.device("cuda" if use_gpu else "cpu")
         else:
             print("\nGPU를 사용할 수 없습니다. CPU를 사용합니다.")
@@ -1034,7 +1034,7 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
     def main_menu(self) -> None:
         """메인 메뉴 표시"""
         while True:
-            BaseCLI.print_header("다중 센서 데이터 분류 시스템")
+            self.print_header("다중 센서 데이터 분류 시스템")
             print("머신러닝 파이프라인 관리 시스템에 오신 것을 환영합니다.")
             print("아래 메뉴에서 원하는 작업을 선택하세요.\n")
 
@@ -1074,7 +1074,19 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
             else:
                 print("\n유효하지 않은 선택입니다. 다시 시도하세요.")
                 input("계속하려면 Enter 키를 누르세요...")
-
+    def run(self) -> None:
+        """CLI 실행"""
+        try:
+        # 필요한 디렉토리 생성
+            self.ensure_dirs()
+        
+            # 메인 메뉴 실행
+            self.main_menu()
+        except KeyboardInterrupt:
+            print("\n\n프로그램이 사용자에 의해 중단되었습니다.")
+        except Exception as e:
+            self.show_error(f"예상치 못한 오류가 발생했습니다: {str(e)}")
+            logger.exception("예상치 못한 오류 발생")
     
 
     def main(self):
