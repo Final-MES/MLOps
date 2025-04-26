@@ -30,8 +30,8 @@ def main():
     choice = input("옵션을 선택하세요 (1-4): ")
     
     if choice == "1":
-        from src.cli.sensor_cli import main as sensor_main
-        sensor_main()
+        from src.cli.sensor_cli import SensorCLI
+        SensorCLI.main()
     elif choice == "2":
         from src.cli.image_cli import main as image_main
         image_main()
