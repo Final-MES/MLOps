@@ -65,7 +65,11 @@ class MainCLI(BaseCLI):
             elif choice == 2:
                 print("\n프로그램을 종료합니다. 감사합니다!")
                 break
-    
+            elif choice == "3":
+                self.run_text_cli()
+            elif choice == "4":
+                print("\n프로그램을 종료합니다. 감사합니다!")
+                break
     def run_sensor_cli(self) -> None:
         """센서 데이터 CLI 실행"""
         try:
@@ -103,7 +107,24 @@ class MainCLI(BaseCLI):
             self.show_error(f"데이터베이스 추출 CLI 실행 중 오류 발생: {str(e)}")
             logger.exception("DB 추출 CLI 실행 오류")
             self.wait_for_user()
-    
+    def run_text_cli(self) -> None:
+        """센서 데이터 CLI 실행"""
+        try:
+            # 센서 CLI 모듈 임포트
+            from src.cli.text_cli import TextCLI
+            
+            # CLI 인스턴스 생성 및 실행
+            text_cli = TextCLI()
+            text_cli.run()
+            
+        except ImportError:
+            self.show_error("텍스트 데이터 CLI 모듈을 로드할 수 없습니다.")
+            logger.exception("텍스트 CLI 모듈 로드 실패")
+            self.wait_for_user()
+        except Exception as e:
+            self.show_error(f"텍스트 데이터 CLI 실행 중 오류 발생: {str(e)}")
+            logger.exception("텍스트 CLI 실행 오류")
+            self.wait_for_user()
     def run(self) -> None:
         """CLI 실행"""
         try:

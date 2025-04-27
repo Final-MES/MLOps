@@ -60,7 +60,7 @@ class TextCLI(BaseCLI):
     def __init__(self):
         """텍스트 CLI 초기화"""
         super().__init__(title="텍스트 데이터 처리 시스템")
-        
+    
         # 상태 정보 초기화
         self.state = {
             'preprocessor': None,
@@ -71,9 +71,11 @@ class TextCLI(BaseCLI):
             'model': None,
             'train_data': None,
             'val_data': None,
-            'test_data': None
+            'test_data': None,
+            'labels': None,
+            'current_tokenizer_path': None
         }
-        
+    
         # 전처리 설정
         self.preprocess_params = {
             'lowercase': True,
@@ -83,14 +85,15 @@ class TextCLI(BaseCLI):
             'stemming': False,
             'lemmatization': False
         }
-        
+    
         # 토큰화 설정
         self.tokenize_params = {
             'tokenizer_type': 'basic',  # 'basic', 'wordpiece', 'bpe'
-            'vocab_size': 10000,
-            'min_frequency': 2
+            'vocab_size': 10000,    
+            'min_frequency': 2,
+            'max_sequence_length': 512  # 추가: 시퀀스 길이 제한
         }
-        
+    
         # 모델 설정
         self.model_params = {
             'embed_dim': 128,
@@ -98,26 +101,27 @@ class TextCLI(BaseCLI):
             'num_layers': 2,
             'dropout_rate': 0.2
         }
-        
+    
         # 학습 설정
         self.training_params = {
             'batch_size': 32,
             'learning_rate': 0.001,
             'epochs': 10
         }
-        
+    
         # 기본 경로 설정
         self.paths = {
             'data_dir': os.path.join(project_root, 'data', 'text'),
             'output_dir': os.path.join(project_root, 'data', 'processed', 'text'),
             'model_dir': os.path.join(project_root, 'models', 'text'),
-            'plot_dir': os.path.join(project_root, 'plots', 'text')
+            'plot_dir': os.path.join(project_root, 'plots', 'text'),
+            'tokenizer_dir': os.path.join(project_root, 'models', 'tokenizers')  # 추가: 토크나이저 저장 디렉토리
         }
-        
+    
         # 필요한 디렉토리 생성
         for path in self.paths.values():
             os.makedirs(path, exist_ok=True)
-        
+    
         logger.info("텍스트 데이터 처리 CLI 초기화 완료")
     
     def main_menu(self) -> None:
@@ -1093,20 +1097,20 @@ class TextCLI(BaseCLI):
             print("❌ 오류: 저장할 토크나이저가 없습니다. 먼저 토크나이저를 초기화하세요.")
             input("\n계속하려면 Enter 키를 누르세요...")
             return
-    
+
         # 저장 디렉토리 확인
         tokenizer_dir = self.paths['tokenizer_dir']
         os.makedirs(tokenizer_dir, exist_ok=True)
-    
+
         # 파일명 설정
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        tokenizer_type = self.state['tokenizer_type']
-        vocab_size = self.state['tokenizer_params']['vocab_size']
+        tokenizer_type = self.tokenize_params['tokenizer_type']  # state가 아닌 tokenize_params에서 가져옴
+        vocab_size = self.tokenize_params['vocab_size']
         default_filename = f"{tokenizer_type}_tokenizer_{vocab_size}_{timestamp}.pkl"
-    
+
         tokenizer_path = self.get_input("저장할 파일 경로", os.path.join(tokenizer_dir, default_filename))
-    
-        try:
+
+        try:    
             # 토크나이저 저장
             if hasattr(self.state['tokenizer'], 'save_to_file'):
                 # 내장 저장 메서드가 있는 경우
@@ -1115,35 +1119,35 @@ class TextCLI(BaseCLI):
                 # pickle로 직접 저장
                 with open(tokenizer_path, 'wb') as f:
                     pickle.dump(self.state['tokenizer'], f)
-        
+    
             # 상태 업데이트
             self.state['current_tokenizer_path'] = tokenizer_path
-        
+    
             print(f"\n✅ 토크나이저가 '{tokenizer_path}'에 저장되었습니다.")
-        
+    
             # 메타데이터 저장 (선택적)
             save_metadata = self.get_yes_no_input("토크나이저 메타데이터도 저장하시겠습니까?")
             if save_metadata:
                 metadata_path = tokenizer_path.replace('.pkl', '_metadata.json')
                 metadata = {
-                    'tokenizer_type': self.state['tokenizer_type'],
-                    'vocab_size': self.state['tokenizer_params']['vocab_size'],
-                'min_frequency': self.state['tokenizer_params']['min_frequency'],
-                'max_sequence_length': self.state['tokenizer_params']['max_sequence_length'],
-                'saved_at': time.strftime("%Y-%m-%d %H:%M:%S"),
-                'vocab_count': len(self.state['tokenizer'].vocab) if hasattr(self.state['tokenizer'], 'vocab') else "unknown"
-            }
-            
-            with open(metadata_path, 'w', encoding='utf-8') as f:
-                json.dump(metadata, f, indent=4, ensure_ascii=False)
-            
-            print(f"메타데이터가 '{metadata_path}'에 저장되었습니다.")
+                    'tokenizer_type': self.tokenize_params['tokenizer_type'],
+                    'vocab_size': self.tokenize_params['vocab_size'],
+                    'min_frequency': self.tokenize_params['min_frequency'],
+                    'max_sequence_length': self.tokenize_params['max_sequence_length'],
+                    'saved_at': time.strftime("%Y-%m-%d %H:%M:%S"),
+                    'vocab_count': len(self.state['tokenizer'].vocab) if hasattr(self.state['tokenizer'], 'vocab') else "unknown"
+                }
         
+                with open(metadata_path, 'w', encoding='utf-8') as f:
+                    json.dump(metadata, f, indent=4, ensure_ascii=False)
+
+                print(f"메타데이터가 '{metadata_path}'에 저장되었습니다.")
+
         except Exception as e:
             print(f"\n❌ 오류: 토크나이저 저장 중 예외가 발생했습니다: {str(e)}")
             logger.exception("토크나이저 저장 중 예외 발생")
-    
-            input("\n계속하려면 Enter 키를 누르세요...")
+
+        input("\n계속하려면 Enter 키를 누르세요...")
 
     def load_tokenizer(self) -> None:
         """토크나이저 로드 기능"""
