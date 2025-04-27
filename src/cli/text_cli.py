@@ -30,7 +30,14 @@ from src.data.common.utils import split_dataset
 
 # 기본 CLI 클래스 임포트
 from src.cli.base_cli import BaseCLI
-
+from src.utils.training import (
+    prepare_dataloaders, train_model, evaluate_model,
+    save_model_info, save_evaluation_result
+)
+from src.utils.visualization import (
+    plot_training_history, plot_confusion_matrix, plot_class_distribution,
+    plot_sensor_data, plot_attention_weights, plot_feature_importance
+)
 # 로깅 설정
 logging.basicConfig(
     level=logging.INFO,
@@ -1088,7 +1095,7 @@ class TextCLI(BaseCLI):
             return
     
         # 저장 디렉토리 확인
-        tokenizer_dir = self.DEFAULT_DIRS['tokenizer_dir']
+        tokenizer_dir = self.paths['tokenizer_dir']
         os.makedirs(tokenizer_dir, exist_ok=True)
     
         # 파일명 설정
@@ -1115,16 +1122,16 @@ class TextCLI(BaseCLI):
             print(f"\n✅ 토크나이저가 '{tokenizer_path}'에 저장되었습니다.")
         
             # 메타데이터 저장 (선택적)
-            save_metadata = get_yes_no_input("토크나이저 메타데이터도 저장하시겠습니까?")
+            save_metadata = self.get_yes_no_input("토크나이저 메타데이터도 저장하시겠습니까?")
             if save_metadata:
                 metadata_path = tokenizer_path.replace('.pkl', '_metadata.json')
                 metadata = {
                     'tokenizer_type': self.state['tokenizer_type'],
                     'vocab_size': self.state['tokenizer_params']['vocab_size'],
                 'min_frequency': self.state['tokenizer_params']['min_frequency'],
-                'max_sequence_length': STATE['tokenizer_params']['max_sequence_length'],
+                'max_sequence_length': self.state['tokenizer_params']['max_sequence_length'],
                 'saved_at': time.strftime("%Y-%m-%d %H:%M:%S"),
-                'vocab_count': len(STATE['tokenizer'].vocab) if hasattr(STATE['tokenizer'], 'vocab') else "unknown"
+                'vocab_count': len(self.state['tokenizer'].vocab) if hasattr(self.state['tokenizer'], 'vocab') else "unknown"
             }
             
             with open(metadata_path, 'w', encoding='utf-8') as f:
@@ -1138,10 +1145,10 @@ class TextCLI(BaseCLI):
     
             input("\n계속하려면 Enter 키를 누르세요...")
 
-    def load_tokenizer(save) -> None:
+    def load_tokenizer(self) -> None:
         """토크나이저 로드 기능"""
         # 저장 디렉토리 확인
-        tokenizer_dir = DEFAULT_DIRS['tokenizer_dir']
+        tokenizer_dir = self.paths['tokenizer_dir']
     
         if not os.path.exists(tokenizer_dir):
             print(f"❌ 오류: 토크나이저 디렉토리 '{tokenizer_dir}'가 존재하지 않습니다.")
@@ -1184,7 +1191,7 @@ class TextCLI(BaseCLI):
         # 파일 선택
         while True:
             try:
-                choice = get_input("\n로드할 토크나이저 번호", "1")
+                choice = self.get_input("\n로드할 토크나이저 번호", "1")
                 choice_idx = int(choice) - 1
             
                 if 0 <= choice_idx < len(tokenizer_files):
@@ -1257,9 +1264,9 @@ class TextCLI(BaseCLI):
     
         # 디렉토리 설정
         print("디렉토리 설정:")
-        for dir_name, dir_path in DEFAULT_DIRS.items():
+        for dir_name, dir_path in self.paths.items():
             new_path = self.get_input(f"{dir_name} 디렉토리", dir_path)
-            DEFAULT_DIRS[dir_name] = new_path
+            self.paths[dir_name] = new_path
             os.makedirs(new_path, exist_ok=True)
     
         # 로깅 레벨 설정
@@ -1291,43 +1298,31 @@ class TextCLI(BaseCLI):
             print("숫자를 입력하세요")
     
         print(f"\n✅ 시스템 설정이 변경되었습니다.")
-        for dir_name, dir_path in DEFAULT_DIRS.items():
+        for dir_name, dir_path in self.paths.items():
             print(f"- {dir_name} 디렉토리: {dir_path}")
     
         input("\n계속하려면 Enter 키를 누르세요...")
 
-
-def ensure_dirs() -> None:
-    """필요한 디렉토리 생성"""
-    for dir_path in [
-        os.path.join(project_root, 'data', 'text'),
-        os.path.join(project_root, 'data', 'processed', 'text'),
-        os.path.join(project_root, 'models', 'text'),
-        os.path.join(project_root, 'plots', 'text'),
-        os.path.join(project_root, 'logs')
-    ]:
-        os.makedirs(dir_path, exist_ok=True)
-
-def main():
-    """메인 함수"""
-    try:
-        # 필요한 디렉토리 생성
-        ensure_dirs()
+    def main(self):
+        """메인 함수"""
+        try:
+            # 필요한 디렉토리 생성
+            self.ensure_dirs()
         
-        # 로깅 설정
-        log_dir = os.path.join(project_root, 'logs')
-        os.makedirs(log_dir, exist_ok=True)
+            # 로깅 설정
+            log_dir = os.path.join(project_root, 'logs')
+            os.makedirs(log_dir, exist_ok=True)
         
-        # 메인 메뉴 실행
-        main_menu()
+            # 메인 메뉴 실행
+            TextCLI.main_menu()
         
-    except KeyboardInterrupt:
-        print("\n\n프로그램이 사용자에 의해 중단되었습니다.")
-        sys.exit(0)
-    except Exception as e:
-        print(f"\n❌ 예상치 못한 오류가 발생했습니다: {str(e)}")
-        logger.exception("예상치 못한 오류 발생")
-        sys.exit(1)
+        except KeyboardInterrupt:
+            print("\n\n프로그램이 사용자에 의해 중단되었습니다.")
+            sys.exit(0)
+        except Exception as e:
+            print(f"\n❌ 예상치 못한 오류가 발생했습니다: {str(e)}")
+            logger.exception("예상치 못한 오류 발생")
+            sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    TextCLI.main()
