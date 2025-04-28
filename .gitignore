@@ -86,3 +86,4 @@ coverage.xml
 # *.jpg
 # *.jpeg
 # *.gif
+config/db_config.json
