@@ -559,1023 +559,1023 @@ class ImageCLI(BaseCLI):
         
         input("\n계속하려면 Enter 키를 누르세요...")
     
-def train_model_menu(self) -> None:
-    """모델 학습 메뉴"""
-    self.print_header("모델 학습")
-    
-    # 데이터 확인
-    if self.state['preprocessed_data'] is None:
-        self.show_error("전처리된 데이터가 없습니다. 먼저 데이터 전처리를 수행하세요.")
-        self.wait_for_user()
-        return
-    
-    # 학습 파라미터 확인
-    print("학습에 사용할 설정:")
-    print(f"- 장치: {self.state['device']}")
-    print(f"- 모델 유형: {self.state['model_params']['model_type']}")
-    print(f"- 입력 크기: {self.state['model_params']['input_size']}")
-    print(f"- 채널 수: {self.state['model_params']['num_channels']}")
-    print(f"- 클래스 수: {self.state['model_params']['num_classes']}")
-    print(f"- 배치 크기: {self.state['training_params']['batch_size']}")
-    print(f"- 학습률: {self.state['training_params']['learning_rate']}")
-    print(f"- 에폭 수: {self.state['training_params']['epochs']}")
-    print(f"- 조기 종료 인내 횟수: {self.state['training_params']['patience']}")
-    
-    # 전이학습 모델인 경우 추가 정보 표시
-    if self.state['model_params']['model_type'] in ['vgg16', 'resnet18', 'mobilenetv2']:
-        print(f"- 사전 학습 가중치: {'사용' if self.state['model_params'].get('pretrained', True) else '미사용'}")
-        print(f"- 미세 조정: {'적용' if self.state['model_params'].get('fine_tune', False) else '미적용'}")
-    
-    # 학습 시작 확인
-    start_training = self.get_yes_no_input("\n위 설정으로 학습을 시작하시겠습니까?")
-    if not start_training:
-        self.show_message("학습을 취소합니다.")
-        self.wait_for_user()
-        return
-    
-    try:
-        import torch
-        import torch.nn as nn
-        import torch.optim as optim
-        from torch.utils.data import TensorDataset, DataLoader
-        import numpy as np
-        from sklearn.metrics import accuracy_score, classification_report
-        import time
-        from src.models.image.model_factory import ImageModelFactory
-        from src.utils.visualization import plot_training_history
+    def train_model_menu(self) -> None:
+        """모델 학습 메뉴"""
+        self.print_header("모델 학습")
         
-        # 데이터 준비
-        self.show_message("\n[1/6] 데이터 로더 준비 중...")
+        # 데이터 확인
+        if self.state['preprocessed_data'] is None:
+            self.show_error("전처리된 데이터가 없습니다. 먼저 데이터 전처리를 수행하세요.")
+            self.wait_for_user()
+            return
         
-        # 전처리된 데이터 가져오기
-        X_train, y_train = self.state['preprocessed_data']['train_dataset']
-        X_val, y_val = self.state['preprocessed_data']['val_dataset']
+        # 학습 파라미터 확인
+        print("학습에 사용할 설정:")
+        print(f"- 장치: {self.state['device']}")
+        print(f"- 모델 유형: {self.state['model_params']['model_type']}")
+        print(f"- 입력 크기: {self.state['model_params']['input_size']}")
+        print(f"- 채널 수: {self.state['model_params']['num_channels']}")
+        print(f"- 클래스 수: {self.state['model_params']['num_classes']}")
+        print(f"- 배치 크기: {self.state['training_params']['batch_size']}")
+        print(f"- 학습률: {self.state['training_params']['learning_rate']}")
+        print(f"- 에폭 수: {self.state['training_params']['epochs']}")
+        print(f"- 조기 종료 인내 횟수: {self.state['training_params']['patience']}")
         
-        # 텐서 변환
-        # 이미지 데이터 포맷 변환 (N, H, W, C) -> (N, C, H, W)
-        X_train_tensor = torch.from_numpy(X_train).permute(0, 3, 1, 2).float()
-        X_val_tensor = torch.from_numpy(X_val).permute(0, 3, 1, 2).float()
+        # 전이학습 모델인 경우 추가 정보 표시
+        if self.state['model_params']['model_type'] in ['vgg16', 'resnet18', 'mobilenetv2']:
+            print(f"- 사전 학습 가중치: {'사용' if self.state['model_params'].get('pretrained', True) else '미사용'}")
+            print(f"- 미세 조정: {'적용' if self.state['model_params'].get('fine_tune', False) else '미적용'}")
         
-        # 레이블 텐서 변환
-        y_train_tensor = torch.from_numpy(y_train).long()
-        y_val_tensor = torch.from_numpy(y_val).long()
+        # 학습 시작 확인
+        start_training = self.get_yes_no_input("\n위 설정으로 학습을 시작하시겠습니까?")
+        if not start_training:
+            self.show_message("학습을 취소합니다.")
+            self.wait_for_user()
+            return
         
-        # 데이터셋 생성
-        train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
-        val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
-        
-        # 데이터 로더 생성
-        train_loader = DataLoader(
-            train_dataset, 
-            batch_size=self.state['training_params']['batch_size'], 
-            shuffle=True
-        )
-        val_loader = DataLoader(
-            val_dataset, 
-            batch_size=self.state['training_params']['batch_size'], 
-            shuffle=False
-        )
-        
-        self.show_message(f"데이터 로더 준비 완료:")
-        self.show_message(f"- 학습 데이터: {len(train_dataset)}개 이미지")
-        self.show_message(f"- 검증 데이터: {len(val_dataset)}개 이미지")
-        
-        # 모델 초기화
-        self.show_message("\n[2/6] 모델 초기화 중...")
-        
-        # 모델 생성
-        model = ImageModelFactory.create_model(
-            model_type=self.state['model_params']['model_type'],
-            model_params=self.state['model_params'],
-            device=self.state['device']
-        )
-        
-        # 모델 정보 출력
-        model_info = model.get_model_info()
-        self.show_message(f"모델 초기화 완료:")
-        self.show_message(f"- 모델 유형: {model_info['model_type']}")
-        self.show_message(f"- 파라미터 수: {model_info['parameter_count']:,}")
-        
-        if 'trainable_params' in model_info:
-            trainable_ratio = model_info['trainable_params'] / model_info['parameter_count'] * 100
-            self.show_message(f"- 학습 가능 파라미터: {model_info['trainable_params']:,} ({trainable_ratio:.2f}%)")
-        
-        # 손실 함수 및 옵티마이저 설정
-        criterion = nn.CrossEntropyLoss()
-        
-        # 옵티마이저 선택
-        optimizer_type = self.state['training_params'].get('optimizer', 'adam').lower()
-        if optimizer_type == 'sgd':
-            optimizer = optim.SGD(
-                model.parameters(), 
-                lr=self.state['training_params']['learning_rate'],
-                momentum=self.state['training_params'].get('momentum', 0.9),
-                weight_decay=self.state['training_params'].get('weight_decay', 0.0001)
-            )
-        elif optimizer_type == 'rmsprop':
-            optimizer = optim.RMSprop(
-                model.parameters(), 
-                lr=self.state['training_params']['learning_rate'],
-                weight_decay=self.state['training_params'].get('weight_decay', 0.0001)
-            )
-        elif optimizer_type == 'adamw':
-            optimizer = optim.AdamW(
-                model.parameters(), 
-                lr=self.state['training_params']['learning_rate'],
-                weight_decay=self.state['training_params'].get('weight_decay', 0.01)
-            )
-        else:  # 기본값: adam
-            optimizer = optim.Adam(
-                model.parameters(), 
-                lr=self.state['training_params']['learning_rate'],
-                weight_decay=self.state['training_params'].get('weight_decay', 0.0001)
-            )
-        
-        # 학습률 스케줄러 설정
-        scheduler = None
-        scheduler_type = self.state['training_params'].get('scheduler')
-        
-        if scheduler_type == 'reduce_on_plateau':
-            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, 
-                mode='min', 
-                factor=self.state['training_params'].get('scheduler_factor', 0.1),
-                patience=self.state['training_params'].get('scheduler_patience', 3),
-                verbose=True
-            )
-        elif scheduler_type == 'step_lr':
-            scheduler = optim.lr_scheduler.StepLR(
-                optimizer,
-                step_size=self.state['training_params'].get('scheduler_step_size', 10),
-                gamma=self.state['training_params'].get('scheduler_gamma', 0.1)
-            )
-        elif scheduler_type == 'cosine_annealing':
-            scheduler = optim.lr_scheduler.CosineAnnealingLR(
-                optimizer,
-                T_max=self.state['training_params'].get('scheduler_t_max', 10)
-            )
-        
-        # 학습 이력 추적
-        history = {
-            'train_loss': [], 
-            'train_accuracy': [], 
-            'valid_loss': [], 
-            'valid_accuracy': []
-        }
-        
-        # 조기 종료 설정
-        best_val_loss = float('inf')
-        patience_counter = 0
-        
-        # 모델 저장 경로
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        model_save_path = os.path.join(
-            self.paths["model_dir"],
-            f"{self.state['model_params']['model_type']}_model_{timestamp}.pth"
-        )
-        
-        # 학습 시작
-        self.show_message("\n[3/6] 모델 학습 중...")
-        
-        # 에폭 루프
-        for epoch in range(self.state['training_params']['epochs']):
-            # 학습 모드
-            model.train()
-            train_loss = 0.0
-            train_correct = 0
-            train_total = 0
+        try:
+            import torch
+            import torch.nn as nn
+            import torch.optim as optim
+            from torch.utils.data import TensorDataset, DataLoader
+            import numpy as np
+            from sklearn.metrics import accuracy_score, classification_report
+            import time
+            from src.models.image.model_factory import ImageModelFactory
+            from src.utils.visualization import plot_training_history
             
-            # 학습 데이터 배치 루프
-            for inputs, labels in train_loader:
-                # 입력과 레이블을 장치로 이동
-                inputs = inputs.to(self.state['device'])
-                labels = labels.to(self.state['device'])
-                
-                # 그래디언트 초기화
-                optimizer.zero_grad()
-                
-                # 순방향 전파
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
-                
-                # 역전파 및 최적화
-                loss.backward()
-                optimizer.step()
-                
-                # 통계 누적
-                train_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)
-                train_total += labels.size(0)
-                train_correct += (predicted == labels).sum().item()
+            # 데이터 준비
+            self.show_message("\n[1/6] 데이터 로더 준비 중...")
             
-            # 에폭당 평균 학습 손실 및 정확도
-            train_loss = train_loss / len(train_loader)
-            train_accuracy = train_correct / train_total
-            history['train_loss'].append(train_loss)
-            history['train_accuracy'].append(train_accuracy)
+            # 전처리된 데이터 가져오기
+            X_train, y_train = self.state['preprocessed_data']['train_dataset']
+            X_val, y_val = self.state['preprocessed_data']['val_dataset']
             
-            # 검증 모드
-            model.eval()
-            val_loss = 0.0
-            val_correct = 0
-            val_total = 0
+            # 텐서 변환
+            # 이미지 데이터 포맷 변환 (N, H, W, C) -> (N, C, H, W)
+            X_train_tensor = torch.from_numpy(X_train).permute(0, 3, 1, 2).float()
+            X_val_tensor = torch.from_numpy(X_val).permute(0, 3, 1, 2).float()
             
-            with torch.no_grad():
-                for inputs, labels in val_loader:
+            # 레이블 텐서 변환
+            y_train_tensor = torch.from_numpy(y_train).long()
+            y_val_tensor = torch.from_numpy(y_val).long()
+            
+            # 데이터셋 생성
+            train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+            val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
+            
+            # 데이터 로더 생성
+            train_loader = DataLoader(
+                train_dataset, 
+                batch_size=self.state['training_params']['batch_size'], 
+                shuffle=True
+            )
+            val_loader = DataLoader(
+                val_dataset, 
+                batch_size=self.state['training_params']['batch_size'], 
+                shuffle=False
+            )
+            
+            self.show_message(f"데이터 로더 준비 완료:")
+            self.show_message(f"- 학습 데이터: {len(train_dataset)}개 이미지")
+            self.show_message(f"- 검증 데이터: {len(val_dataset)}개 이미지")
+            
+            # 모델 초기화
+            self.show_message("\n[2/6] 모델 초기화 중...")
+            
+            # 모델 생성
+            model = ImageModelFactory.create_model(
+                model_type=self.state['model_params']['model_type'],
+                model_params=self.state['model_params'],
+                device=self.state['device']
+            )
+            
+            # 모델 정보 출력
+            model_info = model.get_model_info()
+            self.show_message(f"모델 초기화 완료:")
+            self.show_message(f"- 모델 유형: {model_info['model_type']}")
+            self.show_message(f"- 파라미터 수: {model_info['parameter_count']:,}")
+            
+            if 'trainable_params' in model_info:
+                trainable_ratio = model_info['trainable_params'] / model_info['parameter_count'] * 100
+                self.show_message(f"- 학습 가능 파라미터: {model_info['trainable_params']:,} ({trainable_ratio:.2f}%)")
+            
+            # 손실 함수 및 옵티마이저 설정
+            criterion = nn.CrossEntropyLoss()
+            
+            # 옵티마이저 선택
+            optimizer_type = self.state['training_params'].get('optimizer', 'adam').lower()
+            if optimizer_type == 'sgd':
+                optimizer = optim.SGD(
+                    model.parameters(), 
+                    lr=self.state['training_params']['learning_rate'],
+                    momentum=self.state['training_params'].get('momentum', 0.9),
+                    weight_decay=self.state['training_params'].get('weight_decay', 0.0001)
+                )
+            elif optimizer_type == 'rmsprop':
+                optimizer = optim.RMSprop(
+                    model.parameters(), 
+                    lr=self.state['training_params']['learning_rate'],
+                    weight_decay=self.state['training_params'].get('weight_decay', 0.0001)
+                )
+            elif optimizer_type == 'adamw':
+                optimizer = optim.AdamW(
+                    model.parameters(), 
+                    lr=self.state['training_params']['learning_rate'],
+                    weight_decay=self.state['training_params'].get('weight_decay', 0.01)
+                )
+            else:  # 기본값: adam
+                optimizer = optim.Adam(
+                    model.parameters(), 
+                    lr=self.state['training_params']['learning_rate'],
+                    weight_decay=self.state['training_params'].get('weight_decay', 0.0001)
+                )
+            
+            # 학습률 스케줄러 설정
+            scheduler = None
+            scheduler_type = self.state['training_params'].get('scheduler')
+            
+            if scheduler_type == 'reduce_on_plateau':
+                scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                    optimizer, 
+                    mode='min', 
+                    factor=self.state['training_params'].get('scheduler_factor', 0.1),
+                    patience=self.state['training_params'].get('scheduler_patience', 3),
+                    verbose=True
+                )
+            elif scheduler_type == 'step_lr':
+                scheduler = optim.lr_scheduler.StepLR(
+                    optimizer,
+                    step_size=self.state['training_params'].get('scheduler_step_size', 10),
+                    gamma=self.state['training_params'].get('scheduler_gamma', 0.1)
+                )
+            elif scheduler_type == 'cosine_annealing':
+                scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer,
+                    T_max=self.state['training_params'].get('scheduler_t_max', 10)
+                )
+            
+            # 학습 이력 추적
+            history = {
+                'train_loss': [], 
+                'train_accuracy': [], 
+                'valid_loss': [], 
+                'valid_accuracy': []
+            }
+            
+            # 조기 종료 설정
+            best_val_loss = float('inf')
+            patience_counter = 0
+            
+            # 모델 저장 경로
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            model_save_path = os.path.join(
+                self.paths["model_dir"],
+                f"{self.state['model_params']['model_type']}_model_{timestamp}.pth"
+            )
+            
+            # 학습 시작
+            self.show_message("\n[3/6] 모델 학습 중...")
+            
+            # 에폭 루프
+            for epoch in range(self.state['training_params']['epochs']):
+                # 학습 모드
+                model.train()
+                train_loss = 0.0
+                train_correct = 0
+                train_total = 0
+                
+                # 학습 데이터 배치 루프
+                for inputs, labels in train_loader:
                     # 입력과 레이블을 장치로 이동
                     inputs = inputs.to(self.state['device'])
                     labels = labels.to(self.state['device'])
+                    
+                    # 그래디언트 초기화
+                    optimizer.zero_grad()
                     
                     # 순방향 전파
                     outputs = model(inputs)
                     loss = criterion(outputs, labels)
                     
+                    # 역전파 및 최적화
+                    loss.backward()
+                    optimizer.step()
+                    
                     # 통계 누적
-                    val_loss += loss.item()
+                    train_loss += loss.item()
                     _, predicted = torch.max(outputs.data, 1)
-                    val_total += labels.size(0)
-                    val_correct += (predicted == labels).sum().item()
-            
-            # 에폭당 평균 검증 손실 및 정확도
-            val_loss = val_loss / len(val_loader)
-            val_accuracy = val_correct / val_total
-            history['valid_loss'].append(val_loss)
-            history['valid_accuracy'].append(val_accuracy)
-            
-            # 학습률 스케줄러 업데이트
-            if scheduler is not None:
-                if scheduler_type == 'reduce_on_plateau':
-                    scheduler.step(val_loss)
-                else:
-                    scheduler.step()
-            
-            # 에폭 결과 출력
-            self.show_message(
-                f"에폭 {epoch+1}/{self.state['training_params']['epochs']}, "
-                f"학습 손실: {train_loss:.4f}, 학습 정확도: {train_accuracy:.4f}, "
-                f"검증 손실: {val_loss:.4f}, 검증 정확도: {val_accuracy:.4f}"
-            )
-            
-            # 조기 종료 확인
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                patience_counter = 0
+                    train_total += labels.size(0)
+                    train_correct += (predicted == labels).sum().item()
                 
-                # 최적 모델 저장
-                torch.save(model.state_dict(), model_save_path)
-                self.show_message(f"새로운 최적 모델 저장: {model_save_path} (검증 손실: {val_loss:.4f})")
-            else:
-                patience_counter += 1
-                if patience_counter >= self.state['training_params']['patience']:
-                    self.show_message(f"조기 종료 (에폭 {epoch+1})")
-                    break
-        
-        # 최적 모델 로드
-        model.load_state_dict(torch.load(model_save_path))
-        
-        # 모델 정보 저장
-        self.show_message("\n[4/6] 모델 정보 저장 중...")
-        model_info = model.get_model_info()
-        model_info.update({
-            "input_size": self.state['model_params']['input_size'],
-            "num_channels": self.state['model_params']['num_channels'],
-            "num_classes": self.state['model_params']['num_classes'],
-            "class_names": self.state['preprocessed_data']['class_names'],
-            "preprocessing": {
-                "input_size": self.state['model_params']['input_size'],
-                "normalize": self.state['preprocessing_params']['normalize']
-            },
-            "training": {
-                "optimizer": optimizer_type,
-                "learning_rate": self.state['training_params']['learning_rate'],
-                "epochs": epoch + 1,  # 실제 학습된 에폭 수
-                "batch_size": self.state['training_params']['batch_size'],
-                "best_val_loss": best_val_loss,
-                "best_val_accuracy": max(history['valid_accuracy']),
-                "early_stopping": patience_counter >= self.state['training_params']['patience']
-            },
-            "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
-        })
-        
-        # 모델 정보 파일 저장
-        model_info_path = os.path.join(self.paths["model_dir"], "model_info.json")
-        with open(model_info_path, 'w') as f:
-            import json
-            json.dump(model_info, f, indent=4)
-        
-        self.show_message(f"모델 정보 저장 완료: {model_info_path}")
-        
-        # 학습 이력 시각화
-        self.show_message("\n[5/6] 학습 결과 시각화 중...")
-        
-        plot_dir = self.paths["plot_dir"]
-        os.makedirs(plot_dir, exist_ok=True)
-        
-        history_path = plot_training_history(history, plot_dir)
-        self.show_message(f"학습 이력 시각화 저장: {history_path}")
-        
-        # 클래스별 성능 평가
-        self.show_message("\n[6/6] 모델 성능 평가 중...")
-        
-        model.eval()
-        val_predictions = []
-        val_targets = []
-        
-        with torch.no_grad():
-            for inputs, labels in val_loader:
-                inputs = inputs.to(self.state['device'])
-                outputs = model(inputs)
-                _, predicted = torch.max(outputs, 1)
+                # 에폭당 평균 학습 손실 및 정확도
+                train_loss = train_loss / len(train_loader)
+                train_accuracy = train_correct / train_total
+                history['train_loss'].append(train_loss)
+                history['train_accuracy'].append(train_accuracy)
                 
-                val_predictions.extend(predicted.cpu().numpy())
-                val_targets.extend(labels.numpy())
-        
-        # 클래스 이름 가져오기
-        class_names = self.state['preprocessed_data']['class_names']
-        
-        # 분류 보고서 생성
-        report = classification_report(
-            val_targets, 
-            val_predictions, 
-            target_names=class_names,
-            output_dict=True
-        )
-        
-        # 평가 결과 출력
-        self.show_message("\n클래스별 성능:")
-        for class_name in class_names:
-            if class_name in report:
-                metrics = report[class_name]
-                self.show_message(
-                    f"- {class_name}: 정밀도={metrics['precision']:.4f}, "
-                    f"재현율={metrics['recall']:.4f}, F1={metrics['f1-score']:.4f}"
-                )
-        
-        # 상태 업데이트
-        self.state['model'] = model
-        self.state['training_history'] = history
-        self.state['current_model_path'] = model_save_path
-        
-        # 최종 결과 출력
-        self.show_success("\n모델 학습이 완료되었습니다.")
-        val_acc = history['valid_accuracy'][-1]
-        val_loss = history['valid_loss'][-1]
-        self.show_message(f"\n최종 검증 성능:")
-        self.show_message(f"- 검증 정확도: {val_acc:.4f}")
-        self.show_message(f"- 검증 손실: {val_loss:.4f}")
-        self.show_message(f"\n모델이 저장되었습니다: {model_save_path}")
-        
-    except Exception as e:
-        self.show_error(f"\n모델 학습 중 예외가 발생했습니다: {str(e)}")
-        import traceback
-        logger.exception("모델 학습 중 예외 발생")
-        self.show_error(traceback.format_exc())
-    
-    input("\n계속하려면 Enter 키를 누르세요...")
-
-def evaluate_model_menu(self) -> None:
-    """모델 평가 메뉴"""
-    self.print_header("모델 평가")
-    
-    # 모델 확인
-    if self.state['model'] is None:
-        self.show_error("학습된 모델이 없습니다. 먼저 모델 학습을 수행하세요.")
-        self.wait_for_user()
-        return
-    
-    # 데이터 확인
-    if self.state['preprocessed_data'] is None:
-        self.show_error("전처리된 데이터가 없습니다. 먼저 데이터 전처리를 수행하세요.")
-        self.wait_for_user()
-        return
-    
-    try:
-        import torch
-        import torch.nn as nn
-        import numpy as np
-        from torch.utils.data import TensorDataset, DataLoader
-        from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
-        import matplotlib.pyplot as plt
-        import os
-        import seaborn as sns
-        from src.models.image.cnn_model import GradCAM
-        
-        # 테스트 데이터 준비
-        self.show_message("\n[1/5] 테스트 데이터 준비 중...")
-        
-        # 전처리된 테스트 데이터 가져오기
-        X_test, y_test = self.state['preprocessed_data']['test_dataset']
-        class_names = self.state['preprocessed_data']['class_names']
-        
-        # 텐서 변환
-        # 이미지 데이터 포맷 변환 (N, H, W, C) -> (N, C, H, W)
-        X_test_tensor = torch.from_numpy(X_test).permute(0, 3, 1, 2).float()
-        y_test_tensor = torch.from_numpy(y_test).long()
-        
-        # 데이터셋 및 로더 생성
-        test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
-        test_loader = DataLoader(
-            test_dataset, 
-            batch_size=self.state['training_params']['batch_size'], 
-            shuffle=False
-        )
-        
-        self.show_message(f"테스트 데이터 준비 완료: {len(test_dataset)}개 이미지")
-        
-        # 모델 평가 준비
-        self.show_message("\n[2/5] 모델 평가 중...")
-        model = self.state['model']
-        model.eval()
-        device = self.state['device']
-        
-        # 평가 지표
-        test_loss = 0.0
-        correct = 0
-        total = 0
-        all_preds = []
-        all_targets = []
-        class_correct = [0] * len(class_names)
-        class_total = [0] * len(class_names)
-        
-        # 손실 함수
-        criterion = nn.CrossEntropyLoss()
-        
-        # 배치 단위 평가
-        with torch.no_grad():
-            for inputs, targets in test_loader:
-                inputs, targets = inputs.to(device), targets.to(device)
+                # 검증 모드
+                model.eval()
+                val_loss = 0.0
+                val_correct = 0
+                val_total = 0
                 
-                # 예측
-                outputs = model(inputs)
-                loss = criterion(outputs, targets)
-                test_loss += loss.item()
-                
-                # 정확도 계산
-                _, predicted = torch.max(outputs, 1)
-                total += targets.size(0)
-                correct += (predicted == targets).sum().item()
-                
-                # 클래스별 정확도 계산
-                for i in range(targets.size(0)):
-                    label = targets[i].item()
-                    pred = predicted[i].item()
-                    class_total[label] += 1
-                    if label == pred:
-                        class_correct[label] += 1
-                
-                # 전체 예측 및 타겟 저장 (혼동 행렬 계산용)
-                all_preds.extend(predicted.cpu().numpy())
-                all_targets.extend(targets.cpu().numpy())
-        
-        # 평균 손실 및 정확도 계산
-        test_loss /= len(test_loader)
-        accuracy = correct / total
-        
-        # 평가 결과 출력
-        self.show_message("\n평가 결과:")
-        self.show_message(f"테스트 손실: {test_loss:.4f}")
-        self.show_message(f"테스트 정확도: {accuracy:.4f} ({correct}/{total})")
-        
-        # 클래스별 정확도 출력
-        self.show_message("\n클래스별 정확도:")
-        for i in range(len(class_names)):
-            if class_total[i] > 0:
-                class_acc = class_correct[i] / class_total[i]
-                self.show_message(f"- {class_names[i]}: {class_acc:.4f} ({class_correct[i]}/{class_total[i]})")
-        
-        # 분류 보고서 생성
-        report = classification_report(all_targets, all_preds, target_names=class_names, output_dict=True)
-        
-        # 주요 지표 출력
-        self.show_message("\n분류 보고서:")
-        for class_name in class_names:
-            metrics = report[class_name]
-            self.show_message(f"- {class_name}: 정밀도={metrics['precision']:.4f}, 재현율={metrics['recall']:.4f}, F1={metrics['f1-score']:.4f}")
-        
-        # 혼동 행렬 계산 및 시각화
-        self.show_message("\n[3/5] 혼동 행렬 시각화 중...")
-        
-        # 혼동 행렬 계산
-        cm = confusion_matrix(all_targets, all_preds)
-        
-        # 혼동 행렬 시각화
-        plt.figure(figsize=(10, 8))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=class_names, yticklabels=class_names)
-        plt.title('Confusion Matrix')
-        plt.ylabel('True Label')
-        plt.xlabel('Predicted Label')
-        plt.tight_layout()
-        
-        # 저장
-        plot_dir = self.paths["plot_dir"]
-        os.makedirs(plot_dir, exist_ok=True)
-        cm_path = os.path.join(plot_dir, 'confusion_matrix.png')
-        plt.savefig(cm_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        self.show_message(f"혼동 행렬 시각화 저장: {cm_path}")
-        
-        # Grad-CAM 시각화
-        self.show_message("\n[4/5] Grad-CAM 시각화 중...")
-        
-        # 타겟 레이어 선택 (모델 유형에 따라 다름)
-        target_layer = None
-        if hasattr(model, 'features') and hasattr(model, 'classifier'):
-            # VGG 또는 MobileNet 구조
-            target_layer = model.features[-1]
-        elif hasattr(model, 'conv4'):
-            # 기본 CNN 구조
-            target_layer = model.conv4
-        
-        if target_layer is not None:
-            try:
-                # GradCAM 초기화
-                grad_cam = GradCAM(model, target_layer)
-                
-                # 샘플 이미지 선택 (각 클래스별로 1개씩, 최대 10개)
-                samples_per_class = 1
-                max_samples = min(10, len(class_names) * samples_per_class)
-                
-                sample_indices = []
-                sample_targets = []
-                
-                # 각 클래스별로 샘플 선택
-                for class_idx in range(len(class_names)):
-                    class_indices = np.where(y_test == class_idx)[0]
-                    if len(class_indices) > 0:
-                        selected_indices = class_indices[:samples_per_class]
-                        sample_indices.extend(selected_indices)
-                        sample_targets.extend([class_idx] * len(selected_indices))
-                
-                # 최대 샘플 수 제한
-                sample_indices = sample_indices[:max_samples]
-                sample_targets = sample_targets[:max_samples]
-                
-                # 샘플별 Grad-CAM 생성
-                for i, (idx, target) in enumerate(zip(sample_indices, sample_targets)):
-                    # 이미지 및 레이블 가져오기
-                    img = X_test[idx]
-                    img_tensor = X_test_tensor[idx:idx+1].to(device)
-                    true_label = class_names[target]
-                    
-                    # 예측 수행
-                    model.eval()
-                    with torch.no_grad():
-                        output = model(img_tensor)
-                        _, predicted = torch.max(output, 1)
-                        pred_label = class_names[predicted.item()]
+                with torch.no_grad():
+                    for inputs, labels in val_loader:
+                        # 입력과 레이블을 장치로 이동
+                        inputs = inputs.to(self.state['device'])
+                        labels = labels.to(self.state['device'])
                         
-                    # Grad-CAM 생성
-                    cam = grad_cam.generate_grad_cam(img_tensor, predicted.item())
-                    cam = cam.cpu().numpy()[0, 0]  # (H, W)
-                    
-                    # 원본 이미지 가져오기
-                    orig_img = np.uint8(img * 255) if img.max() <= 1.0 else np.uint8(img)
-                    
-                    # 히트맵 생성
-                    heatmap = np.uint8(255 * cam)
-                    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-                    
-                    # 이미지 형식 맞추기
-                    if len(orig_img.shape) == 2:
-                        # 흑백 이미지인 경우 3채널로 변환
-                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2RGB)
-                    elif orig_img.shape[2] == 4:
-                        # 알파 채널이 있는 경우 RGB로 변환
-                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_RGBA2RGB)
-                    
-                    # 히트맵 리사이즈
-                    heatmap = cv2.resize(heatmap, (orig_img.shape[1], orig_img.shape[0]))
-                    
-                    # 히트맵과 원본 이미지 합성
-                    superimposed = cv2.addWeighted(orig_img, 0.6, heatmap, 0.4, 0)
-                    
-                    # 시각화
-                    plt.figure(figsize=(12, 4))
-                    
-                    # 원본 이미지
-                    plt.subplot(1, 3, 1)
-                    plt.imshow(orig_img)
-                    plt.title("Original Image")
-                    plt.axis('off')
-                    
-                    # Grad-CAM 히트맵
-                    plt.subplot(1, 3, 2)
-                    plt.imshow(cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB))
-                    plt.title("Grad-CAM Heatmap")
-                    plt.axis('off')
-                    
-                    # 합성 이미지
-                    plt.subplot(1, 3, 3)
-                    plt.imshow(cv2.cvtColor(superimposed, cv2.COLOR_BGR2RGB))
-                    plt.title(f"True: {true_label}\nPred: {pred_label}")
-                    plt.axis('off')
-                    
-                    # 저장
-                    gradcam_path = os.path.join(plot_dir, f'gradcam_sample_{i+1}.png')
-                    plt.savefig(gradcam_path, dpi=300, bbox_inches='tight')
-                    plt.close()
+                        # 순방향 전파
+                        outputs = model(inputs)
+                        loss = criterion(outputs, labels)
+                        
+                        # 통계 누적
+                        val_loss += loss.item()
+                        _, predicted = torch.max(outputs.data, 1)
+                        val_total += labels.size(0)
+                        val_correct += (predicted == labels).sum().item()
                 
-                self.show_message(f"Grad-CAM 시각화 저장 완료: {plot_dir}")
+                # 에폭당 평균 검증 손실 및 정확도
+                val_loss = val_loss / len(val_loader)
+                val_accuracy = val_correct / val_total
+                history['valid_loss'].append(val_loss)
+                history['valid_accuracy'].append(val_accuracy)
                 
-            except Exception as e:
-                self.show_warning(f"Grad-CAM 시각화 중 오류 발생: {str(e)}")
-                import traceback
-                logger.warning(f"Grad-CAM 시각화 오류: {traceback.format_exc()}")
-        else:
-            self.show_warning("현재 모델 구조에서는 Grad-CAM을 적용할 수 없습니다.")
-        
-        # 평가 결과 저장
-        self.show_message("\n[5/5] 평가 결과 저장 중...")
-        
-        # 평가 결과 사전 생성
-        evaluation_result = {
-            'test_loss': test_loss,
-            'accuracy': accuracy,
-            'class_accuracy': {class_names[i]: (class_correct[i] / class_total[i] if class_total[i] > 0 else 0.0) 
-                              for i in range(len(class_names))},
-            'classification_report': report,
-            'confusion_matrix': cm.tolist(),
-            'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        
-        # 평가 결과 파일 저장
-        eval_path = os.path.join(self.paths["output_dir"], f"evaluation_result_{time.strftime('%Y%m%d_%H%M%S')}.json")
-        
-        with open(eval_path, 'w') as f:
-            import json
-            json.dump(evaluation_result, f, indent=4)
-        
-        # 상태 업데이트
-        self.state['evaluation_result'] = evaluation_result
-        
-        self.show_success(f"\n평가 결과가 저장되었습니다: {eval_path}")
-        self.show_message("\n시각화 결과 파일:")
-        self.show_message(f"- 혼동 행렬: {cm_path}")
-        if target_layer is not None:
-            self.show_message(f"- Grad-CAM 샘플: {plot_dir}/gradcam_sample_*.png")
-        
-    except Exception as e:
-        self.show_error(f"\n모델 평가 중 예외가 발생했습니다: {str(e)}")
-        import traceback
-        logger.exception("모델 평가 중 예외 발생")
-        self.show_error(traceback.format_exc())
-    
-    input("\n계속하려면 Enter 키를 누르세요...")
-    
-def deploy_model_menu(self) -> None:
-    """모델 배포 메뉴"""
-    self.print_header("모델 배포")
-    
-    # 모델 확인
-    if self.state['model'] is None or self.state['current_model_path'] is None:
-        self.show_error("배포할 모델이 없습니다. 먼저 모델 학습을 수행하세요.")
-        self.wait_for_user()
-        return
-    
-    print("모델 배포는 학습된 모델을 배포 디렉토리에 복사하고")
-    print("추론을 위한 필요한 파일들을 준비하는 단계입니다.\n")
-    
-    # 배포 디렉토리 설정
-    deploy_dir = self.get_input("배포 디렉토리 경로", self.paths["deploy_dir"])
-    
-    try:
-        # 배포 디렉토리 생성
-        os.makedirs(deploy_dir, exist_ok=True)
-        
-        # 타임스탬프로 하위 디렉토리 생성
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        deploy_subdir = os.path.join(deploy_dir, f"deployment_{timestamp}")
-        os.makedirs(deploy_subdir, exist_ok=True)
-        
-        self.show_message("\n[1/5] 모델 파일 복사 중...")
-        model_filename = os.path.basename(self.state['current_model_path'])
-        deploy_model_path = os.path.join(deploy_subdir, model_filename)
-        shutil.copy2(self.state['current_model_path'], deploy_model_path)
-        self.show_message(f"모델 파일 복사 완료: {deploy_model_path}")
-        
-        # 모델 정보 파일 복사
-        self.show_message("\n[2/5] 모델 정보 파일 복사 중...")
-        model_info_src = os.path.join(self.paths["model_dir"], 'model_info.json')
-        model_info_dst = os.path.join(deploy_subdir, 'model_info.json')
-        if os.path.exists(model_info_src):
-            shutil.copy2(model_info_src, model_info_dst)
-            self.show_message(f"모델 정보 파일 복사 완료: {model_info_dst}")
-        else:
-            # 모델 정보 파일이 없으면 새로 생성
-            model_info = self.state['model'].get_model_info()
+                # 학습률 스케줄러 업데이트
+                if scheduler is not None:
+                    if scheduler_type == 'reduce_on_plateau':
+                        scheduler.step(val_loss)
+                    else:
+                        scheduler.step()
+                
+                # 에폭 결과 출력
+                self.show_message(
+                    f"에폭 {epoch+1}/{self.state['training_params']['epochs']}, "
+                    f"학습 손실: {train_loss:.4f}, 학습 정확도: {train_accuracy:.4f}, "
+                    f"검증 손실: {val_loss:.4f}, 검증 정확도: {val_accuracy:.4f}"
+                )
+                
+                # 조기 종료 확인
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    patience_counter = 0
+                    
+                    # 최적 모델 저장
+                    torch.save(model.state_dict(), model_save_path)
+                    self.show_message(f"새로운 최적 모델 저장: {model_save_path} (검증 손실: {val_loss:.4f})")
+                else:
+                    patience_counter += 1
+                    if patience_counter >= self.state['training_params']['patience']:
+                        self.show_message(f"조기 종료 (에폭 {epoch+1})")
+                        break
+            
+            # 최적 모델 로드
+            model.load_state_dict(torch.load(model_save_path))
+            
+            # 모델 정보 저장
+            self.show_message("\n[4/6] 모델 정보 저장 중...")
+            model_info = model.get_model_info()
             model_info.update({
                 "input_size": self.state['model_params']['input_size'],
                 "num_channels": self.state['model_params']['num_channels'],
                 "num_classes": self.state['model_params']['num_classes'],
+                "class_names": self.state['preprocessed_data']['class_names'],
+                "preprocessing": {
+                    "input_size": self.state['model_params']['input_size'],
+                    "normalize": self.state['preprocessing_params']['normalize']
+                },
+                "training": {
+                    "optimizer": optimizer_type,
+                    "learning_rate": self.state['training_params']['learning_rate'],
+                    "epochs": epoch + 1,  # 실제 학습된 에폭 수
+                    "batch_size": self.state['training_params']['batch_size'],
+                    "best_val_loss": best_val_loss,
+                    "best_val_accuracy": max(history['valid_accuracy']),
+                    "early_stopping": patience_counter >= self.state['training_params']['patience']
+                },
                 "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
             })
-            with open(model_info_dst, 'w') as f:
+            
+            # 모델 정보 파일 저장
+            model_info_path = os.path.join(self.paths["model_dir"], "model_info.json")
+            with open(model_info_path, 'w') as f:
+                import json
                 json.dump(model_info, f, indent=4)
-            self.show_message(f"모델 정보 파일 생성 완료: {model_info_dst}")
-        
-        # 클래스 매핑 정보 저장
-        self.show_message("\n[3/5] 클래스 매핑 정보 저장 중...")
-        if self.state['preprocessed_data'] is not None and 'class_names' in self.state['preprocessed_data']:
+            
+            self.show_message(f"모델 정보 저장 완료: {model_info_path}")
+            
+            # 학습 이력 시각화
+            self.show_message("\n[5/6] 학습 결과 시각화 중...")
+            
+            plot_dir = self.paths["plot_dir"]
+            os.makedirs(plot_dir, exist_ok=True)
+            
+            history_path = plot_training_history(history, plot_dir)
+            self.show_message(f"학습 이력 시각화 저장: {history_path}")
+            
+            # 클래스별 성능 평가
+            self.show_message("\n[6/6] 모델 성능 평가 중...")
+            
+            model.eval()
+            val_predictions = []
+            val_targets = []
+            
+            with torch.no_grad():
+                for inputs, labels in val_loader:
+                    inputs = inputs.to(self.state['device'])
+                    outputs = model(inputs)
+                    _, predicted = torch.max(outputs, 1)
+                    
+                    val_predictions.extend(predicted.cpu().numpy())
+                    val_targets.extend(labels.numpy())
+            
+            # 클래스 이름 가져오기
             class_names = self.state['preprocessed_data']['class_names']
-            class_mapping = {i: name for i, name in enumerate(class_names)}
             
-            class_mapping_path = os.path.join(deploy_subdir, 'class_mapping.json')
-            with open(class_mapping_path, 'w') as f:
-                json.dump(class_mapping, f, indent=4)
-            self.show_message(f"클래스 매핑 정보 저장 완료: {class_mapping_path}")
-        else:
-            self.show_warning("클래스 매핑 정보를 찾을 수 없습니다.")
-        
-        # 평가 결과 복사 (있는 경우)
-        self.show_message("\n[4/5] 평가 결과 복사 중...")
-        if self.state['evaluation_result'] is not None:
-            eval_result_path = os.path.join(deploy_subdir, 'evaluation_result.json')
+            # 분류 보고서 생성
+            report = classification_report(
+                val_targets, 
+                val_predictions, 
+                target_names=class_names,
+                output_dict=True
+            )
             
-            # NumPy 배열을 일반 리스트로 변환하여 JSON 직렬화 가능하게 만듦
-            eval_result = {}
-            for k, v in self.state['evaluation_result'].items():
-                if hasattr(v, 'tolist'):
-                    eval_result[k] = v.tolist()
-                elif isinstance(v, dict):
-                    eval_result[k] = {}
-                    for kk, vv in v.items():
-                        if hasattr(vv, 'tolist'):
-                            eval_result[k][kk] = vv.tolist()
-                        else:
-                            eval_result[k][kk] = vv
-                else:
-                    eval_result[k] = v
+            # 평가 결과 출력
+            self.show_message("\n클래스별 성능:")
+            for class_name in class_names:
+                if class_name in report:
+                    metrics = report[class_name]
+                    self.show_message(
+                        f"- {class_name}: 정밀도={metrics['precision']:.4f}, "
+                        f"재현율={metrics['recall']:.4f}, F1={metrics['f1-score']:.4f}"
+                    )
             
-            with open(eval_result_path, 'w') as f:
-                json.dump(eval_result, f, indent=4)
-            self.show_message(f"평가 결과 저장 완료: {eval_result_path}")
-        else:
-            self.show_message("평가 결과가 없어 복사를 건너뜁니다.")
+            # 상태 업데이트
+            self.state['model'] = model
+            self.state['training_history'] = history
+            self.state['current_model_path'] = model_save_path
+            
+            # 최종 결과 출력
+            self.show_success("\n모델 학습이 완료되었습니다.")
+            val_acc = history['valid_accuracy'][-1]
+            val_loss = history['valid_loss'][-1]
+            self.show_message(f"\n최종 검증 성능:")
+            self.show_message(f"- 검증 정확도: {val_acc:.4f}")
+            self.show_message(f"- 검증 손실: {val_loss:.4f}")
+            self.show_message(f"\n모델이 저장되었습니다: {model_save_path}")
+            
+        except Exception as e:
+            self.show_error(f"\n모델 학습 중 예외가 발생했습니다: {str(e)}")
+            import traceback
+            logger.exception("모델 학습 중 예외 발생")
+            self.show_error(traceback.format_exc())
         
-        # 추론 스크립트 생성
-        self.show_message("\n[5/5] 추론 스크립트 생성 중...")
-        
-        # src/models/image/inference.py 파일을 참고하여 추론 스크립트 생성
-        inference_script = """#!/usr/bin/env python"""
-    
-    except Exception as e:
-        self.show_error(f"예상치 못한 오류가 발생했습니다: {str(e)}")
-        logger.exception("예상치 못한 오류 발생")
+        input("\n계속하려면 Enter 키를 누르세요...")
 
-    input("\n계속하려면 Enter 키를 누르세요...")
-
-def system_config_menu(self) -> None:
-    """
-    시스템 구성 설정을 위한 메뉴 인터페이스를 제공합니다.
-    사용자가 GPU 사용, 이미지 처리 스레드 수, 캐시 크기 등의 시스템 설정을 변경할 수 있습니다.
-    """
-    while True:
-        print("\n===== 시스템 구성 메뉴 =====")
-        print("1. GPU 사용 설정")
-        print("2. 이미지 처리 스레드 수 설정")
-        print("3. 이미지 캐시 크기 설정")
-        print("4. 출력 디렉토리 설정")
-        print("5. 로깅 레벨 설정")
-        print("6. 현재 설정 확인")
-        print("0. 이전 메뉴로 돌아가기")
+    def evaluate_model_menu(self) -> None:
+        """모델 평가 메뉴"""
+        self.print_header("모델 평가")
         
-        choice = input("\n메뉴를 선택하세요: ")
+        # 모델 확인
+        if self.state['model'] is None:
+            self.show_error("학습된 모델이 없습니다. 먼저 모델 학습을 수행하세요.")
+            self.wait_for_user()
+            return
         
-        if choice == "1":
-            self._configure_gpu_usage()
-        elif choice == "2":
-            self._configure_processing_threads()
-        elif choice == "3":
-            self._configure_cache_size()
-        elif choice == "4":
-            self._configure_output_directory()
-        elif choice == "5":
-            self._configure_logging_level()
-        elif choice == "6":
-            self._show_current_config()
-        elif choice == "0":
-            print("이전 메뉴로 돌아갑니다.")
-            break
-        else:
-            print("잘못된 선택입니다. 다시 시도해주세요.")
-    
-def _configure_gpu_usage(self) -> None:
-    """GPU 사용 여부 및 설정을 구성합니다."""
-    print("\n----- GPU 사용 설정 -----")
-    print("현재 GPU 사용 설정: ", "활성화" if self.config.get("use_gpu", False) else "비활성화")
-    
-    choice = input("GPU를 사용하시겠습니까? (y/n): ").lower()
-    if choice == 'y':
-        self.config["use_gpu"] = True
-        available_gpus = self._get_available_gpus()
-        if available_gpus:
-            print("\n사용 가능한 GPU 목록:")
-            for i, gpu in enumerate(available_gpus):
-                print(f"{i+1}. {gpu}")
+        # 데이터 확인
+        if self.state['preprocessed_data'] is None:
+            self.show_error("전처리된 데이터가 없습니다. 먼저 데이터 전처리를 수행하세요.")
+            self.wait_for_user()
+            return
+        
+        try:
+            import torch
+            import torch.nn as nn
+            import numpy as np
+            from torch.utils.data import TensorDataset, DataLoader
+            from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
+            import matplotlib.pyplot as plt
+            import os
+            import seaborn as sns
+            from src.models.image.cnn_model import GradCAM
             
-            gpu_choice = input("\n사용할 GPU 번호를 선택하세요 (모두 사용: all): ")
-            if gpu_choice.lower() == 'all':
-                self.config["gpu_devices"] = "all"
-            else:
+            # 테스트 데이터 준비
+            self.show_message("\n[1/5] 테스트 데이터 준비 중...")
+            
+            # 전처리된 테스트 데이터 가져오기
+            X_test, y_test = self.state['preprocessed_data']['test_dataset']
+            class_names = self.state['preprocessed_data']['class_names']
+            
+            # 텐서 변환
+            # 이미지 데이터 포맷 변환 (N, H, W, C) -> (N, C, H, W)
+            X_test_tensor = torch.from_numpy(X_test).permute(0, 3, 1, 2).float()
+            y_test_tensor = torch.from_numpy(y_test).long()
+            
+            # 데이터셋 및 로더 생성
+            test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
+            test_loader = DataLoader(
+                test_dataset, 
+                batch_size=self.state['training_params']['batch_size'], 
+                shuffle=False
+            )
+            
+            self.show_message(f"테스트 데이터 준비 완료: {len(test_dataset)}개 이미지")
+            
+            # 모델 평가 준비
+            self.show_message("\n[2/5] 모델 평가 중...")
+            model = self.state['model']
+            model.eval()
+            device = self.state['device']
+            
+            # 평가 지표
+            test_loss = 0.0
+            correct = 0
+            total = 0
+            all_preds = []
+            all_targets = []
+            class_correct = [0] * len(class_names)
+            class_total = [0] * len(class_names)
+            
+            # 손실 함수
+            criterion = nn.CrossEntropyLoss()
+            
+            # 배치 단위 평가
+            with torch.no_grad():
+                for inputs, targets in test_loader:
+                    inputs, targets = inputs.to(device), targets.to(device)
+                    
+                    # 예측
+                    outputs = model(inputs)
+                    loss = criterion(outputs, targets)
+                    test_loss += loss.item()
+                    
+                    # 정확도 계산
+                    _, predicted = torch.max(outputs, 1)
+                    total += targets.size(0)
+                    correct += (predicted == targets).sum().item()
+                    
+                    # 클래스별 정확도 계산
+                    for i in range(targets.size(0)):
+                        label = targets[i].item()
+                        pred = predicted[i].item()
+                        class_total[label] += 1
+                        if label == pred:
+                            class_correct[label] += 1
+                    
+                    # 전체 예측 및 타겟 저장 (혼동 행렬 계산용)
+                    all_preds.extend(predicted.cpu().numpy())
+                    all_targets.extend(targets.cpu().numpy())
+            
+            # 평균 손실 및 정확도 계산
+            test_loss /= len(test_loader)
+            accuracy = correct / total
+            
+            # 평가 결과 출력
+            self.show_message("\n평가 결과:")
+            self.show_message(f"테스트 손실: {test_loss:.4f}")
+            self.show_message(f"테스트 정확도: {accuracy:.4f} ({correct}/{total})")
+            
+            # 클래스별 정확도 출력
+            self.show_message("\n클래스별 정확도:")
+            for i in range(len(class_names)):
+                if class_total[i] > 0:
+                    class_acc = class_correct[i] / class_total[i]
+                    self.show_message(f"- {class_names[i]}: {class_acc:.4f} ({class_correct[i]}/{class_total[i]})")
+            
+            # 분류 보고서 생성
+            report = classification_report(all_targets, all_preds, target_names=class_names, output_dict=True)
+            
+            # 주요 지표 출력
+            self.show_message("\n분류 보고서:")
+            for class_name in class_names:
+                metrics = report[class_name]
+                self.show_message(f"- {class_name}: 정밀도={metrics['precision']:.4f}, 재현율={metrics['recall']:.4f}, F1={metrics['f1-score']:.4f}")
+            
+            # 혼동 행렬 계산 및 시각화
+            self.show_message("\n[3/5] 혼동 행렬 시각화 중...")
+            
+            # 혼동 행렬 계산
+            cm = confusion_matrix(all_targets, all_preds)
+            
+            # 혼동 행렬 시각화
+            plt.figure(figsize=(10, 8))
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=class_names, yticklabels=class_names)
+            plt.title('Confusion Matrix')
+            plt.ylabel('True Label')
+            plt.xlabel('Predicted Label')
+            plt.tight_layout()
+            
+            # 저장
+            plot_dir = self.paths["plot_dir"]
+            os.makedirs(plot_dir, exist_ok=True)
+            cm_path = os.path.join(plot_dir, 'confusion_matrix.png')
+            plt.savefig(cm_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            self.show_message(f"혼동 행렬 시각화 저장: {cm_path}")
+            
+            # Grad-CAM 시각화
+            self.show_message("\n[4/5] Grad-CAM 시각화 중...")
+            
+            # 타겟 레이어 선택 (모델 유형에 따라 다름)
+            target_layer = None
+            if hasattr(model, 'features') and hasattr(model, 'classifier'):
+                # VGG 또는 MobileNet 구조
+                target_layer = model.features[-1]
+            elif hasattr(model, 'conv4'):
+                # 기본 CNN 구조
+                target_layer = model.conv4
+            
+            if target_layer is not None:
                 try:
-                    gpu_idx = int(gpu_choice) - 1
-                    if 0 <= gpu_idx < len(available_gpus):
-                        self.config["gpu_devices"] = str(gpu_idx)
+                    # GradCAM 초기화
+                    grad_cam = GradCAM(model, target_layer)
+                    
+                    # 샘플 이미지 선택 (각 클래스별로 1개씩, 최대 10개)
+                    samples_per_class = 1
+                    max_samples = min(10, len(class_names) * samples_per_class)
+                    
+                    sample_indices = []
+                    sample_targets = []
+                    
+                    # 각 클래스별로 샘플 선택
+                    for class_idx in range(len(class_names)):
+                        class_indices = np.where(y_test == class_idx)[0]
+                        if len(class_indices) > 0:
+                            selected_indices = class_indices[:samples_per_class]
+                            sample_indices.extend(selected_indices)
+                            sample_targets.extend([class_idx] * len(selected_indices))
+                    
+                    # 최대 샘플 수 제한
+                    sample_indices = sample_indices[:max_samples]
+                    sample_targets = sample_targets[:max_samples]
+                    
+                    # 샘플별 Grad-CAM 생성
+                    for i, (idx, target) in enumerate(zip(sample_indices, sample_targets)):
+                        # 이미지 및 레이블 가져오기
+                        img = X_test[idx]
+                        img_tensor = X_test_tensor[idx:idx+1].to(device)
+                        true_label = class_names[target]
+                        
+                        # 예측 수행
+                        model.eval()
+                        with torch.no_grad():
+                            output = model(img_tensor)
+                            _, predicted = torch.max(output, 1)
+                            pred_label = class_names[predicted.item()]
+                            
+                        # Grad-CAM 생성
+                        cam = grad_cam.generate_grad_cam(img_tensor, predicted.item())
+                        cam = cam.cpu().numpy()[0, 0]  # (H, W)
+                        
+                        # 원본 이미지 가져오기
+                        orig_img = np.uint8(img * 255) if img.max() <= 1.0 else np.uint8(img)
+                        
+                        # 히트맵 생성
+                        heatmap = np.uint8(255 * cam)
+                        heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+                        
+                        # 이미지 형식 맞추기
+                        if len(orig_img.shape) == 2:
+                            # 흑백 이미지인 경우 3채널로 변환
+                            orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2RGB)
+                        elif orig_img.shape[2] == 4:
+                            # 알파 채널이 있는 경우 RGB로 변환
+                            orig_img = cv2.cvtColor(orig_img, cv2.COLOR_RGBA2RGB)
+                        
+                        # 히트맵 리사이즈
+                        heatmap = cv2.resize(heatmap, (orig_img.shape[1], orig_img.shape[0]))
+                        
+                        # 히트맵과 원본 이미지 합성
+                        superimposed = cv2.addWeighted(orig_img, 0.6, heatmap, 0.4, 0)
+                        
+                        # 시각화
+                        plt.figure(figsize=(12, 4))
+                        
+                        # 원본 이미지
+                        plt.subplot(1, 3, 1)
+                        plt.imshow(orig_img)
+                        plt.title("Original Image")
+                        plt.axis('off')
+                        
+                        # Grad-CAM 히트맵
+                        plt.subplot(1, 3, 2)
+                        plt.imshow(cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB))
+                        plt.title("Grad-CAM Heatmap")
+                        plt.axis('off')
+                        
+                        # 합성 이미지
+                        plt.subplot(1, 3, 3)
+                        plt.imshow(cv2.cvtColor(superimposed, cv2.COLOR_BGR2RGB))
+                        plt.title(f"True: {true_label}\nPred: {pred_label}")
+                        plt.axis('off')
+                        
+                        # 저장
+                        gradcam_path = os.path.join(plot_dir, f'gradcam_sample_{i+1}.png')
+                        plt.savefig(gradcam_path, dpi=300, bbox_inches='tight')
+                        plt.close()
+                    
+                    self.show_message(f"Grad-CAM 시각화 저장 완료: {plot_dir}")
+                    
+                except Exception as e:
+                    self.show_warning(f"Grad-CAM 시각화 중 오류 발생: {str(e)}")
+                    import traceback
+                    logger.warning(f"Grad-CAM 시각화 오류: {traceback.format_exc()}")
+            else:
+                self.show_warning("현재 모델 구조에서는 Grad-CAM을 적용할 수 없습니다.")
+            
+            # 평가 결과 저장
+            self.show_message("\n[5/5] 평가 결과 저장 중...")
+            
+            # 평가 결과 사전 생성
+            evaluation_result = {
+                'test_loss': test_loss,
+                'accuracy': accuracy,
+                'class_accuracy': {class_names[i]: (class_correct[i] / class_total[i] if class_total[i] > 0 else 0.0) 
+                                for i in range(len(class_names))},
+                'classification_report': report,
+                'confusion_matrix': cm.tolist(),
+                'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            # 평가 결과 파일 저장
+            eval_path = os.path.join(self.paths["output_dir"], f"evaluation_result_{time.strftime('%Y%m%d_%H%M%S')}.json")
+            
+            with open(eval_path, 'w') as f:
+                import json
+                json.dump(evaluation_result, f, indent=4)
+            
+            # 상태 업데이트
+            self.state['evaluation_result'] = evaluation_result
+            
+            self.show_success(f"\n평가 결과가 저장되었습니다: {eval_path}")
+            self.show_message("\n시각화 결과 파일:")
+            self.show_message(f"- 혼동 행렬: {cm_path}")
+            if target_layer is not None:
+                self.show_message(f"- Grad-CAM 샘플: {plot_dir}/gradcam_sample_*.png")
+            
+        except Exception as e:
+            self.show_error(f"\n모델 평가 중 예외가 발생했습니다: {str(e)}")
+            import traceback
+            logger.exception("모델 평가 중 예외 발생")
+            self.show_error(traceback.format_exc())
+        
+        input("\n계속하려면 Enter 키를 누르세요...")
+    
+    def deploy_model_menu(self) -> None:
+        """모델 배포 메뉴"""
+        self.print_header("모델 배포")
+        
+        # 모델 확인
+        if self.state['model'] is None or self.state['current_model_path'] is None:
+            self.show_error("배포할 모델이 없습니다. 먼저 모델 학습을 수행하세요.")
+            self.wait_for_user()
+            return
+        
+        print("모델 배포는 학습된 모델을 배포 디렉토리에 복사하고")
+        print("추론을 위한 필요한 파일들을 준비하는 단계입니다.\n")
+        
+        # 배포 디렉토리 설정
+        deploy_dir = self.get_input("배포 디렉토리 경로", self.paths["deploy_dir"])
+        
+        try:
+            # 배포 디렉토리 생성
+            os.makedirs(deploy_dir, exist_ok=True)
+            
+            # 타임스탬프로 하위 디렉토리 생성
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            deploy_subdir = os.path.join(deploy_dir, f"deployment_{timestamp}")
+            os.makedirs(deploy_subdir, exist_ok=True)
+            
+            self.show_message("\n[1/5] 모델 파일 복사 중...")
+            model_filename = os.path.basename(self.state['current_model_path'])
+            deploy_model_path = os.path.join(deploy_subdir, model_filename)
+            shutil.copy2(self.state['current_model_path'], deploy_model_path)
+            self.show_message(f"모델 파일 복사 완료: {deploy_model_path}")
+            
+            # 모델 정보 파일 복사
+            self.show_message("\n[2/5] 모델 정보 파일 복사 중...")
+            model_info_src = os.path.join(self.paths["model_dir"], 'model_info.json')
+            model_info_dst = os.path.join(deploy_subdir, 'model_info.json')
+            if os.path.exists(model_info_src):
+                shutil.copy2(model_info_src, model_info_dst)
+                self.show_message(f"모델 정보 파일 복사 완료: {model_info_dst}")
+            else:
+                # 모델 정보 파일이 없으면 새로 생성
+                model_info = self.state['model'].get_model_info()
+                model_info.update({
+                    "input_size": self.state['model_params']['input_size'],
+                    "num_channels": self.state['model_params']['num_channels'],
+                    "num_classes": self.state['model_params']['num_classes'],
+                    "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+                })
+                with open(model_info_dst, 'w') as f:
+                    json.dump(model_info, f, indent=4)
+                self.show_message(f"모델 정보 파일 생성 완료: {model_info_dst}")
+            
+            # 클래스 매핑 정보 저장
+            self.show_message("\n[3/5] 클래스 매핑 정보 저장 중...")
+            if self.state['preprocessed_data'] is not None and 'class_names' in self.state['preprocessed_data']:
+                class_names = self.state['preprocessed_data']['class_names']
+                class_mapping = {i: name for i, name in enumerate(class_names)}
+                
+                class_mapping_path = os.path.join(deploy_subdir, 'class_mapping.json')
+                with open(class_mapping_path, 'w') as f:
+                    json.dump(class_mapping, f, indent=4)
+                self.show_message(f"클래스 매핑 정보 저장 완료: {class_mapping_path}")
+            else:
+                self.show_warning("클래스 매핑 정보를 찾을 수 없습니다.")
+            
+            # 평가 결과 복사 (있는 경우)
+            self.show_message("\n[4/5] 평가 결과 복사 중...")
+            if self.state['evaluation_result'] is not None:
+                eval_result_path = os.path.join(deploy_subdir, 'evaluation_result.json')
+                
+                # NumPy 배열을 일반 리스트로 변환하여 JSON 직렬화 가능하게 만듦
+                eval_result = {}
+                for k, v in self.state['evaluation_result'].items():
+                    if hasattr(v, 'tolist'):
+                        eval_result[k] = v.tolist()
+                    elif isinstance(v, dict):
+                        eval_result[k] = {}
+                        for kk, vv in v.items():
+                            if hasattr(vv, 'tolist'):
+                                eval_result[k][kk] = vv.tolist()
+                            else:
+                                eval_result[k][kk] = vv
                     else:
-                        print("잘못된 GPU 번호입니다. 기본값으로 설정합니다.")
+                        eval_result[k] = v
+                
+                with open(eval_result_path, 'w') as f:
+                    json.dump(eval_result, f, indent=4)
+                self.show_message(f"평가 결과 저장 완료: {eval_result_path}")
+            else:
+                self.show_message("평가 결과가 없어 복사를 건너뜁니다.")
+            
+            # 추론 스크립트 생성
+            self.show_message("\n[5/5] 추론 스크립트 생성 중...")
+            
+            # src/models/image/inference.py 파일을 참고하여 추론 스크립트 생성
+            inference_script = """#!/usr/bin/env python"""
+        
+        except Exception as e:
+            self.show_error(f"예상치 못한 오류가 발생했습니다: {str(e)}")
+            logger.exception("예상치 못한 오류 발생")
+
+        input("\n계속하려면 Enter 키를 누르세요...")
+
+    def system_config_menu(self) -> None:
+        """
+        시스템 구성 설정을 위한 메뉴 인터페이스를 제공합니다.
+        사용자가 GPU 사용, 이미지 처리 스레드 수, 캐시 크기 등의 시스템 설정을 변경할 수 있습니다.
+        """
+        while True:
+            print("\n===== 시스템 구성 메뉴 =====")
+            print("1. GPU 사용 설정")
+            print("2. 이미지 처리 스레드 수 설정")
+            print("3. 이미지 캐시 크기 설정")
+            print("4. 출력 디렉토리 설정")
+            print("5. 로깅 레벨 설정")
+            print("6. 현재 설정 확인")
+            print("0. 이전 메뉴로 돌아가기")
+            
+            choice = input("\n메뉴를 선택하세요: ")
+            
+            if choice == "1":
+                self._configure_gpu_usage()
+            elif choice == "2":
+                self._configure_processing_threads()
+            elif choice == "3":
+                self._configure_cache_size()
+            elif choice == "4":
+                self._configure_output_directory()
+            elif choice == "5":
+                self._configure_logging_level()
+            elif choice == "6":
+                self._show_current_config()
+            elif choice == "0":
+                print("이전 메뉴로 돌아갑니다.")
+                break
+            else:
+                print("잘못된 선택입니다. 다시 시도해주세요.")
+        
+    def _configure_gpu_usage(self) -> None:
+        """GPU 사용 여부 및 설정을 구성합니다."""
+        print("\n----- GPU 사용 설정 -----")
+        print("현재 GPU 사용 설정: ", "활성화" if self.config.get("use_gpu", False) else "비활성화")
+        
+        choice = input("GPU를 사용하시겠습니까? (y/n): ").lower()
+        if choice == 'y':
+            self.config["use_gpu"] = True
+            available_gpus = self._get_available_gpus()
+            if available_gpus:
+                print("\n사용 가능한 GPU 목록:")
+                for i, gpu in enumerate(available_gpus):
+                    print(f"{i+1}. {gpu}")
+                
+                gpu_choice = input("\n사용할 GPU 번호를 선택하세요 (모두 사용: all): ")
+                if gpu_choice.lower() == 'all':
+                    self.config["gpu_devices"] = "all"
+                else:
+                    try:
+                        gpu_idx = int(gpu_choice) - 1
+                        if 0 <= gpu_idx < len(available_gpus):
+                            self.config["gpu_devices"] = str(gpu_idx)
+                        else:
+                            print("잘못된 GPU 번호입니다. 기본값으로 설정합니다.")
+                            self.config["gpu_devices"] = "0"
+                    except ValueError:
+                        print("잘못된 입력입니다. 기본값으로 설정합니다.")
                         self.config["gpu_devices"] = "0"
-                except ValueError:
-                    print("잘못된 입력입니다. 기본값으로 설정합니다.")
-                    self.config["gpu_devices"] = "0"
+            else:
+                print("사용 가능한 GPU가 없습니다. CPU 모드로 전환합니다.")
+                self.config["use_gpu"] = False
         else:
-            print("사용 가능한 GPU가 없습니다. CPU 모드로 전환합니다.")
             self.config["use_gpu"] = False
-    else:
-        self.config["use_gpu"] = False
-    
-    self._save_config()
-    print(f"GPU 설정이 {'활성화' if self.config.get('use_gpu', False) else '비활성화'}되었습니다.")
-
-def _configure_processing_threads(self) -> None:
-    """이미지 처리에 사용할 스레드 수를 설정합니다."""
-    print("\n----- 이미지 처리 스레드 설정 -----")
-    current_threads = self.config.get("processing_threads", 4)
-    print(f"현재 이미지 처리 스레드 수: {current_threads}")
-    
-    try:
-        new_threads = int(input("설정할 스레드 수를 입력하세요 (1-16): "))
-        if 1 <= new_threads <= 16:
-            self.config["processing_threads"] = new_threads
-            self._save_config()
-            print(f"이미지 처리 스레드 수가 {new_threads}로 설정되었습니다.")
-        else:
-            print("유효한 범위가 아닙니다. 1에서 16 사이의 값을 입력하세요.")
-    except ValueError:
-        print("숫자를 입력해주세요.")
-
-def _configure_cache_size(self) -> None:
-    """이미지 캐시 크기를 설정합니다."""
-    print("\n----- 이미지 캐시 크기 설정 -----")
-    current_size = self.config.get("cache_size_mb", 512)
-    print(f"현재 이미지 캐시 크기: {current_size}MB")
-    
-    try:
-        new_size = int(input("설정할 캐시 크기를 입력하세요 (MB 단위, 128-4096): "))
-        if 128 <= new_size <= 4096:
-            self.config["cache_size_mb"] = new_size
-            self._save_config()
-            print(f"이미지 캐시 크기가 {new_size}MB로 설정되었습니다.")
-        else:
-            print("유효한 범위가 아닙니다. 128에서 4096 사이의 값을 입력하세요.")
-    except ValueError:
-        print("숫자를 입력해주세요.")
-
-def _configure_output_directory(self) -> None:
-    """결과물 저장 디렉토리를 설정합니다."""
-    print("\n----- 출력 디렉토리 설정 -----")
-    current_dir = self.config.get("output_directory", "./output")
-    print(f"현재 출력 디렉토리: {current_dir}")
-    
-    new_dir = input("새 출력 디렉토리 경로를 입력하세요 (기본값 유지: 엔터): ")
-    if new_dir:
-        import os
-        if not os.path.exists(new_dir):
-            try:
-                os.makedirs(new_dir)
-                print(f"디렉토리 생성됨: {new_dir}")
-            except OSError as e:
-                print(f"디렉토리 생성 실패: {e}")
-                return
         
-        self.config["output_directory"] = new_dir
         self._save_config()
-        print(f"출력 디렉토리가 {new_dir}로 설정되었습니다.")
+        print(f"GPU 설정이 {'활성화' if self.config.get('use_gpu', False) else '비활성화'}되었습니다.")
 
-def _configure_logging_level(self) -> None:
-    """로깅 레벨을 설정합니다."""
-    print("\n----- 로깅 레벨 설정 -----")
-    logging_levels = {
-        "1": "DEBUG",
-        "2": "INFO",
-        "3": "WARNING",
-        "4": "ERROR",
-        "5": "CRITICAL"
-    }
-    
-    current_level = self.config.get("logging_level", "INFO")
-    print(f"현재 로깅 레벨: {current_level}")
-    
-    print("\n로깅 레벨 선택:")
-    for key, level in logging_levels.items():
-        print(f"{key}. {level}")
-    
-    choice = input("\n로깅 레벨을 선택하세요: ")
-    if choice in logging_levels:
-        self.config["logging_level"] = logging_levels[choice]
-        self._save_config()
-        print(f"로깅 레벨이 {logging_levels[choice]}로 설정되었습니다.")
-    else:
-        print("잘못된 선택입니다.")
-
-def _show_current_config(self) -> None:
-    """현재 시스템 설정을 표시합니다."""
-    print("\n===== 현재 시스템 설정 =====")
-    for key, value in self.config.items():
-        print(f"{key}: {value}")
-    
-    input("\n계속하려면 엔터를 누르세요...")
-
-def _get_available_gpus(self) -> list:
-    """
-    사용 가능한 GPU 목록을 반환합니다.
-    """
-    # 실제 환경에서는 여기에 GPU 감지 로직이 들어갑니다
-    # 예시 구현:
-    try:
-        import torch
-        if torch.cuda.is_available():
-            return [f"GPU {i}: {torch.cuda.get_device_name(i)}" for i in range(torch.cuda.device_count())]
-        return []
-    except ImportError:
-        print("PyTorch가 설치되어 있지 않습니다. GPU 감지를 건너뜁니다.")
-        return []
-
-def _save_config(self) -> None:
-    """현재 구성을 설정 파일에 저장합니다."""
-    try:
-        import json
-        with open(self.config_file, 'w') as f:
-            json.dump(self.config, f, indent=4)
-        print("설정이 저장되었습니다.")
-    except Exception as e:
-        print(f"설정 저장 중 오류 발생: {e}")
-
-def print_status(self) -> None:
-    """현재 상태 출력"""
-    print("\n현재 상태:")
-    print("-" * 40)
-    
-    # 데이터 상태
-    if self.state['preprocessed_data'] is not None:
-        datasets = self.state['preprocessed_data']
-        print(f"✅ 전처리된 데이터: 학습 {len(datasets['train_dataset'])} 이미지, "
-                f"검증 {len(datasets['val_dataset'])} 이미지, "
-                f"테스트 {len(datasets['test_dataset'])} 이미지")
-    else:
-        print("❌ 전처리된 데이터: 없음")
-    
-    # 모델 파라미터
-    print(f"모델: {self.state['model_params']['model_type']} "
-            f"(설정된 파라미터: 입력 크기 {self.state['model_params']['input_size']}, "
-            f"클래스 수 {self.state['model_params']['num_classes']})")
-    
-    # 학습 상태
-    if self.state['training_history'] is not None:
-        val_acc = self.state['training_history']['val_accuracy'][-1]
-        print(f"✅ 학습 완료: 검증 정확도 {val_acc:.4f}")
-    else:
-        print("❌ 학습: 미완료")
-    
-    # 평가 상태
-    if self.state['evaluation_result'] is not None:
-        acc = self.state['evaluation_result']['accuracy']
-        print(f"✅ 평가 완료: 테스트 정확도 {acc:.4f}")
-    else:
-        print("❌ 평가: 미완료")
-    
-    # 배포 상태
-    if self.state['current_model_path'] is not None:
-        print(f"✅ 배포 준비 완료: {os.path.basename(self.state['current_model_path'])}")
-    else:
-        print("❌ 배포: 미준비")
-    
-    print("-" * 40)
-
-def run(self) -> None:
-    """CLI 실행"""
-    try:
-        self.main_menu()
-    except KeyboardInterrupt:
-        print("\n\n프로그램이 사용자에 의해 중단되었습니다.")
-    except Exception as e:
-        self.show_error(f"예상치 못한 오류가 발생했습니다: {str(e)}")
-        logger.exception("예상치 못한 오류 발생")
-
-def main():
-    """메인 함수: CLI 실행"""
-    try:
-        # CLI 인스턴스 생성 및 실행
-        cli = ImageCLI()
-        cli.run()
+    def _configure_processing_threads(self) -> None:
+        """이미지 처리에 사용할 스레드 수를 설정합니다."""
+        print("\n----- 이미지 처리 스레드 설정 -----")
+        current_threads = self.config.get("processing_threads", 4)
+        print(f"현재 이미지 처리 스레드 수: {current_threads}")
         
-    except Exception as e:
-        logger.critical(f"치명적 오류 발생: {str(e)}", exc_info=True)
-        print(f"\n❌ 치명적 오류 발생: {str(e)}")
-        print("로그 파일을 확인하세요.")
-        return 1
-    
-    return 0
+        try:
+            new_threads = int(input("설정할 스레드 수를 입력하세요 (1-16): "))
+            if 1 <= new_threads <= 16:
+                self.config["processing_threads"] = new_threads
+                self._save_config()
+                print(f"이미지 처리 스레드 수가 {new_threads}로 설정되었습니다.")
+            else:
+                print("유효한 범위가 아닙니다. 1에서 16 사이의 값을 입력하세요.")
+        except ValueError:
+            print("숫자를 입력해주세요.")
+
+    def _configure_cache_size(self) -> None:
+        """이미지 캐시 크기를 설정합니다."""
+        print("\n----- 이미지 캐시 크기 설정 -----")
+        current_size = self.config.get("cache_size_mb", 512)
+        print(f"현재 이미지 캐시 크기: {current_size}MB")
+        
+        try:
+            new_size = int(input("설정할 캐시 크기를 입력하세요 (MB 단위, 128-4096): "))
+            if 128 <= new_size <= 4096:
+                self.config["cache_size_mb"] = new_size
+                self._save_config()
+                print(f"이미지 캐시 크기가 {new_size}MB로 설정되었습니다.")
+            else:
+                print("유효한 범위가 아닙니다. 128에서 4096 사이의 값을 입력하세요.")
+        except ValueError:
+            print("숫자를 입력해주세요.")
+
+    def _configure_output_directory(self) -> None:
+        """결과물 저장 디렉토리를 설정합니다."""
+        print("\n----- 출력 디렉토리 설정 -----")
+        current_dir = self.config.get("output_directory", "./output")
+        print(f"현재 출력 디렉토리: {current_dir}")
+        
+        new_dir = input("새 출력 디렉토리 경로를 입력하세요 (기본값 유지: 엔터): ")
+        if new_dir:
+            import os
+            if not os.path.exists(new_dir):
+                try:
+                    os.makedirs(new_dir)
+                    print(f"디렉토리 생성됨: {new_dir}")
+                except OSError as e:
+                    print(f"디렉토리 생성 실패: {e}")
+                    return
+            
+            self.config["output_directory"] = new_dir
+            self._save_config()
+            print(f"출력 디렉토리가 {new_dir}로 설정되었습니다.")
+
+    def _configure_logging_level(self) -> None:
+        """로깅 레벨을 설정합니다."""
+        print("\n----- 로깅 레벨 설정 -----")
+        logging_levels = {
+            "1": "DEBUG",
+            "2": "INFO",
+            "3": "WARNING",
+            "4": "ERROR",
+            "5": "CRITICAL"
+        }
+        
+        current_level = self.config.get("logging_level", "INFO")
+        print(f"현재 로깅 레벨: {current_level}")
+        
+        print("\n로깅 레벨 선택:")
+        for key, level in logging_levels.items():
+            print(f"{key}. {level}")
+        
+        choice = input("\n로깅 레벨을 선택하세요: ")
+        if choice in logging_levels:
+            self.config["logging_level"] = logging_levels[choice]
+            self._save_config()
+            print(f"로깅 레벨이 {logging_levels[choice]}로 설정되었습니다.")
+        else:
+            print("잘못된 선택입니다.")
+
+    def _show_current_config(self) -> None:
+        """현재 시스템 설정을 표시합니다."""
+        print("\n===== 현재 시스템 설정 =====")
+        for key, value in self.config.items():
+            print(f"{key}: {value}")
+        
+        input("\n계속하려면 엔터를 누르세요...")
+
+    def _get_available_gpus(self) -> list:
+        """
+        사용 가능한 GPU 목록을 반환합니다.
+        """
+        # 실제 환경에서는 여기에 GPU 감지 로직이 들어갑니다
+        # 예시 구현:
+        try:
+            import torch
+            if torch.cuda.is_available():
+                return [f"GPU {i}: {torch.cuda.get_device_name(i)}" for i in range(torch.cuda.device_count())]
+            return []
+        except ImportError:
+            print("PyTorch가 설치되어 있지 않습니다. GPU 감지를 건너뜁니다.")
+            return []
+
+    def _save_config(self) -> None:
+        """현재 구성을 설정 파일에 저장합니다."""
+        try:
+            import json
+            with open(self.config_file, 'w') as f:
+                json.dump(self.config, f, indent=4)
+            print("설정이 저장되었습니다.")
+        except Exception as e:
+            print(f"설정 저장 중 오류 발생: {e}")
+
+    def print_status(self) -> None:
+        """현재 상태 출력"""
+        print("\n현재 상태:")
+        print("-" * 40)
+        
+        # 데이터 상태
+        if self.state['preprocessed_data'] is not None:
+            datasets = self.state['preprocessed_data']
+            print(f"✅ 전처리된 데이터: 학습 {len(datasets['train_dataset'])} 이미지, "
+                    f"검증 {len(datasets['val_dataset'])} 이미지, "
+                    f"테스트 {len(datasets['test_dataset'])} 이미지")
+        else:
+            print("❌ 전처리된 데이터: 없음")
+        
+        # 모델 파라미터
+        print(f"모델: {self.state['model_params']['model_type']} "
+                f"(설정된 파라미터: 입력 크기 {self.state['model_params']['input_size']}, "
+                f"클래스 수 {self.state['model_params']['num_classes']})")
+        
+        # 학습 상태
+        if self.state['training_history'] is not None:
+            val_acc = self.state['training_history']['val_accuracy'][-1]
+            print(f"✅ 학습 완료: 검증 정확도 {val_acc:.4f}")
+        else:
+            print("❌ 학습: 미완료")
+        
+        # 평가 상태
+        if self.state['evaluation_result'] is not None:
+            acc = self.state['evaluation_result']['accuracy']
+            print(f"✅ 평가 완료: 테스트 정확도 {acc:.4f}")
+        else:
+            print("❌ 평가: 미완료")
+        
+        # 배포 상태
+        if self.state['current_model_path'] is not None:
+            print(f"✅ 배포 준비 완료: {os.path.basename(self.state['current_model_path'])}")
+        else:
+            print("❌ 배포: 미준비")
+        
+        print("-" * 40)
+
+    def run(self) -> None:
+        """CLI 실행"""
+        try:
+            self.main_menu()
+        except KeyboardInterrupt:
+            print("\n\n프로그램이 사용자에 의해 중단되었습니다.")
+        except Exception as e:
+            self.show_error(f"예상치 못한 오류가 발생했습니다: {str(e)}")
+            logger.exception("예상치 못한 오류 발생")
+
+    def main():
+        """메인 함수: CLI 실행"""
+        try:
+            # CLI 인스턴스 생성 및 실행
+            cli = ImageCLI()
+            cli.run()
+            
+        except Exception as e:
+            logger.critical(f"치명적 오류 발생: {str(e)}", exc_info=True)
+            print(f"\n❌ 치명적 오류 발생: {str(e)}")
+            print("로그 파일을 확인하세요.")
+            return 1
+        
+        return 0
 
 if __name__ == "__main__":
-    sys.exit(main())
+    ImageCLI.main()
