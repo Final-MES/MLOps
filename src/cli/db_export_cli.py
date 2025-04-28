@@ -12,6 +12,7 @@ import logging
 import csv
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
+import json  # 설정 파일 로드에 필요
 
 # 프로젝트 루트 경로 추가
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,6 +28,9 @@ from src.utils.db_utils import (
     get_table_schema, get_row_count
 )
 
+# 설정 로더 임포트
+from src.utils.config_loader import load_db_config, load_export_settings
+
 # 로깅 설정
 logger = logging.getLogger(__name__)
 
@@ -37,8 +41,13 @@ class DBExportCLI(BaseCLI):
     SQL 데이터베이스에서 CSV로 데이터를 추출하는 기능을 제공합니다.
     """
     
-    def __init__(self):
-        """데이터베이스 추출 CLI 초기화"""
+    def __init__(self, config_profile: str = "default"):
+        """
+        데이터베이스 추출 CLI 초기화
+        
+        Args:
+            config_profile: 설정 프로필명 (default, development, production 등)
+        """
         super().__init__(title="SQL 데이터베이스 CSV 추출 도구")
         
         # 상태 초기화
@@ -46,31 +55,24 @@ class DBExportCLI(BaseCLI):
             'DB 연결': None,
             'DB 유형': None,
             '선택된 테이블': None,
-            '마지막 추출 파일': None
+            '마지막 추출 파일': None,
+            '설정 프로필': config_profile
         }
         
-        # 연결 정보 초기화
-        self.connection_params = {
-            'host': 'localhost',
-            'port': {
-                'mysql': 3306,
-                'postgresql': 5432,
-                'sqlserver': 1433
-            },
-            'database': '',
-            'username': '',
-            'password': ''
-        }
+        # 외부 설정 파일에서 연결 정보 로드
+        self.connection_params = load_db_config(config_profile)
         
-        # 추출 설정 초기화
-        self.export_params = {
-            'csv_separator': ',',
-            'include_header': True,
-            'chunk_size': 10000,
-            'output_path': self.paths["data"] / "raw" / "extracted"
-        }
+        # 외부 설정 파일에서 추출 설정 로드
+        self.export_params = load_export_settings()
         
-        logger.info("데이터베이스 추출 CLI 초기화 완료")
+        # 출력 경로가 Path 객체가 아니면 변환
+        if not isinstance(self.export_params['output_path'], Path):
+            self.export_params['output_path'] = Path(self.export_params['output_path'])
+        
+        # 출력 디렉토리 생성
+        os.makedirs(self.export_params['output_path'], exist_ok=True)
+        
+        logger.info(f"데이터베이스 추출 CLI 초기화 완료 (프로필: {config_profile})")
     
     def main_menu(self) -> None:
         """메인 메뉴 표시"""
@@ -86,6 +88,7 @@ class DBExportCLI(BaseCLI):
                 "SQL 쿼리 실행 및 CSV 추출",
                 "테이블 직접 CSV 추출",
                 "추출 설정",
+                "설정 프로필 변경",
                 "종료"
             ]
             
@@ -105,6 +108,8 @@ class DBExportCLI(BaseCLI):
             elif choice == 5:
                 self.export_settings_menu()
             elif choice == 6:
+                self.change_profile_menu()
+            elif choice == 7:
                 print("\n프로그램을 종료합니다. 감사합니다!")
                 # 연결 닫기
                 if self.state['DB 연결'] is not None:
@@ -112,11 +117,89 @@ class DBExportCLI(BaseCLI):
                     print("데이터베이스 연결을 닫았습니다.")
                 break
     
+    def change_profile_menu(self) -> None:
+        """설정 프로필 변경 메뉴"""
+        self.print_header("설정 프로필 변경")
+        
+        print("데이터베이스 연결에 사용할 설정 프로필을 변경합니다.")
+        print("설정 프로필은 config/db_config.json 파일에 정의되어 있습니다.\n")
+        
+        # 현재 프로필 표시
+        current_profile = self.state['설정 프로필']
+        print(f"현재 프로필: {current_profile}\n")
+        
+        # 기본 프로필 목록
+        profiles = ["default", "development", "production"]
+        
+        # 설정 파일에서 추가 프로필 확인
+        try:
+            config_path = os.path.join(project_root, "config", "db_config.json")
+            
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                
+                # 프로필 목록 업데이트
+                if "connections" in config:
+                    profiles = list(config["connections"].keys())
+        except:
+            # 오류 발생 시 기본 프로필 목록 사용
+            pass
+        
+        # 프로필 선택 메뉴
+        print("사용 가능한 프로필:")
+        for i, profile in enumerate(profiles, 1):
+            if profile == current_profile:
+                print(f"{i}. {profile} (현재)")
+            else:
+                print(f"{i}. {profile}")
+        
+        # 사용자 입력
+        choice = self.get_input("\n사용할 프로필 번호 또는 이름", "1")
+        
+        # 번호로 입력한 경우
+        try:
+            choice_idx = int(choice) - 1
+            if 0 <= choice_idx < len(profiles):
+                new_profile = profiles[choice_idx]
+            else:
+                self.show_error(f"유효한 번호를 입력하세요 (1-{len(profiles)})")
+                self.wait_for_user()
+                return
+        except ValueError:
+            # 이름으로 입력한 경우
+            new_profile = choice.strip()
+        
+        # 프로필 변경
+        if new_profile != current_profile:
+            # 기존 연결 닫기
+            if self.state['DB 연결'] is not None:
+                try:
+                    self.state['DB 연결'].close()
+                except:
+                    pass
+                self.update_state('DB 연결', None)
+                self.update_state('DB 유형', None)
+                self.update_state('선택된 테이블', None)
+            
+            # 새 프로필로 연결 정보 로드
+            self.connection_params = load_db_config(new_profile)
+            self.update_state('설정 프로필', new_profile)
+            
+            self.show_success(f"설정 프로필을 '{new_profile}'(으)로 변경했습니다.")
+        else:
+            self.show_message(f"현재 사용 중인 프로필 '{current_profile}'을(를) 유지합니다.")
+        
+        self.wait_for_user()
+    
     def db_connection_menu(self) -> None:
         """데이터베이스 연결 설정 메뉴"""
         self.print_header("데이터베이스 연결 설정")
         
         print("데이터베이스 연결 정보를 설정합니다.\n")
+        
+        # 현재 프로필 표시
+        print(f"현재 설정 프로필: {self.state['설정 프로필']}")
         
         # 기존 연결 닫기
         if self.state['DB 연결'] is not None:
@@ -150,19 +233,26 @@ class DBExportCLI(BaseCLI):
         # 다른 데이터베이스는 연결 정보 필요
         print(f"\n{db_types[db_type_idx]} 연결 정보 입력:")
         
-        host = self.get_input("호스트", self.connection_params['host'])
+        # 연결 정보 입력 (설정 파일의 값을 기본값으로 사용)
+        host = self.get_input("호스트", self.connection_params.get('host', 'localhost'))
         port = self.get_numeric_input(
             "포트", 
-            self.connection_params['port'].get(db_type_lower, 3306), 
+            self.connection_params.get('port', {}).get(db_type_lower, 3306), 
             min_val=1, 
             max_val=65535
         )
-        database = self.get_input("데이터베이스 이름", self.connection_params['database'])
-        username = self.get_input("사용자 이름", self.connection_params['username'])
-        password = self.get_input("비밀번호")
+        database = self.get_input("데이터베이스 이름", self.connection_params.get('database', ''))
+        username = self.get_input("사용자 이름", self.connection_params.get('username', ''))
+        
+        # 비밀번호는 설정에 값이 있어도 표시하지 않음
+        password = self.get_input("비밀번호 (입력하지 않으면 설정 파일의 값 사용)")
+        if not password and 'password' in self.connection_params:
+            password = self.connection_params['password']
         
         # 연결 정보 저장
         self.connection_params['host'] = host
+        if 'port' not in self.connection_params:
+            self.connection_params['port'] = {}
         self.connection_params['port'][db_type_lower] = port
         self.connection_params['database'] = database
         self.connection_params['username'] = username
@@ -606,4 +696,103 @@ class DBExportCLI(BaseCLI):
         )
         
         # 출력 경로
-        new_output_path = Path(self.get_input())
+        output_path_str = self.get_input("출력 디렉토리 경로", str(self.export_params['output_path']))
+        self.export_params['output_path'] = Path(output_path_str)
+        os.makedirs(self.export_params['output_path'], exist_ok=True)
+        
+        # 현재 설정을 설정 파일에 저장할지 여부
+        save_to_config = self.get_yes_no_input("\n변경된 설정을 설정 파일에 저장하시겠습니까?", default=False)
+        if save_to_config:
+            try:
+                # 설정 파일 경로
+                config_path = os.path.join(project_root, "config", "db_config.json")
+                
+                # 설정 파일 로드
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                
+                # 추출 설정 업데이트
+                config["export_settings"] = {
+                    "csv_separator": self.export_params['csv_separator'],
+                    "include_header": self.export_params['include_header'],
+                    "chunk_size": self.export_params['chunk_size'],
+                    "output_path": str(self.export_params['output_path'])
+                }
+                
+                # 설정 파일 저장
+                with open(config_path, 'w') as f:
+                    json.dump(config, f, indent=4)
+                
+                self.show_success("설정이 파일에 저장되었습니다.")
+            except Exception as e:
+                self.show_error(f"설정 저장 실패: {str(e)}")
+                logger.exception("설정 저장 실패")
+        else:
+            self.show_success("추출 설정이 변경되었습니다. (이 세션에만 적용)")
+        
+        self.wait_for_user()
+    
+    def run(self) -> None:
+        """CLI 실행"""
+        try:
+            
+            # 메인 메뉴 실행
+            self.main_menu()
+        except KeyboardInterrupt:
+            print("\n\n프로그램이 사용자에 의해 중단되었습니다.")
+            # 연결 닫기
+            if self.state['DB 연결'] is not None:
+                try:
+                    self.state['DB 연결'].close()
+                except:
+                    pass
+        except Exception as e:
+            self.show_error(f"예상치 못한 오류가 발생했습니다: {str(e)}")
+            logger.exception("예상치 못한 오류 발생")
+            # 연결 닫기
+            if self.state['DB 연결'] is not None:
+                try:
+                    self.state['DB 연결'].close()
+                except:
+                    pass
+
+def main():
+    """메인 함수: CLI 실행"""
+    # 로깅 설정
+    log_dir = os.path.join(project_root, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(os.path.join(log_dir, 'db_export.log'))
+        ]
+    )
+    
+    # 명령줄 인자 파싱
+    import argparse
+    parser = argparse.ArgumentParser(description='SQL 데이터베이스에서 CSV로 데이터를 추출하는 도구')
+    parser.add_argument('--profile', type=str, default='default',
+                      help='사용할 설정 프로필 (default, development, production)')
+    parser.add_argument('--config', type=str, default=None,
+                      help='설정 파일 경로 (기본값: config/db_config.json)')
+    
+    args = parser.parse_args()
+    
+    try:
+        # CLI 인스턴스 생성 및 실행
+        cli = DBExportCLI(config_profile=args.profile)
+        cli.run()
+        
+        return 0  # 성공적인 종료
+        
+    except Exception as e:
+        logger.critical(f"치명적 오류 발생: {str(e)}", exc_info=True)
+        print(f"\n❌ 치명적 오류 발생: {str(e)}")
+        print("로그 파일을 확인하세요.")
+        return 1  # 오류 종료
+
+if __name__ == "__main__":
+    sys.exit(main())
