@@ -3,16 +3,15 @@
 데이터베이스 추출 CLI 모듈
 
 이 모듈은 SQL 데이터베이스에서 데이터를 CSV로 추출하기 위한 대화형 인터페이스를 제공합니다.
-다양한 데이터베이스 유형(MySQL, PostgreSQL, SQLite 등)을 지원합니다.
+다양한 데이터베이스 유형(MySQL, PostgreSQL, SQLite 등)을 지원하며,
+src/utils/db 패키지의 기능들을 활용합니다.
 """
 
 import os
 import sys
 import logging
-import csv
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
-import json  # 설정 파일 로드에 필요
 
 # 프로젝트 루트 경로 추가
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,12 +22,8 @@ if project_root not in sys.path:
 from src.cli.base_cli import BaseCLI
 
 # 데이터베이스 유틸리티 임포트
-from src.utils.db_utils import (
-    get_db_connection, execute_query, get_available_tables, 
-    get_table_schema, get_row_count
-)
-
-# 설정 로더 임포트
+from src.utils.db.connector import DBConnector
+from src.utils.db.exporter import DBExporter
 from src.utils.config_loader import load_db_config, load_export_settings
 
 # 로깅 설정
@@ -39,6 +34,7 @@ class DBExportCLI(BaseCLI):
     데이터베이스 추출 CLI 클래스
     
     SQL 데이터베이스에서 CSV로 데이터를 추출하는 기능을 제공합니다.
+    src/utils/db 패키지의 DBConnector와 DBExporter를 활용합니다.
     """
     
     def __init__(self, config_profile: str = "default"):
@@ -52,15 +48,16 @@ class DBExportCLI(BaseCLI):
         
         # 상태 초기화
         self.state = {
-            'DB 연결': None,
-            'DB 유형': None,
-            '선택된 테이블': None,
+            '설정 프로필': config_profile,
             '마지막 추출 파일': None,
-            '설정 프로필': config_profile
+            '선택된 테이블': None
         }
         
-        # 외부 설정 파일에서 연결 정보 로드
-        self.connection_params = load_db_config(config_profile)
+        # DB 커넥터 초기화
+        self.db_connector = DBConnector(config_profile)
+        
+        # DB 익스포터 초기화
+        self.db_exporter = None  # 연결 후 초기화
         
         # 외부 설정 파일에서 추출 설정 로드
         self.export_params = load_export_settings()
@@ -73,6 +70,34 @@ class DBExportCLI(BaseCLI):
         os.makedirs(self.export_params['output_path'], exist_ok=True)
         
         logger.info(f"데이터베이스 추출 CLI 초기화 완료 (프로필: {config_profile})")
+    
+    def print_status(self) -> None:
+        """현재 상태 출력"""
+        print("\n현재 상태:")
+        print("-" * 40)
+        
+        # DB 연결 상태
+        if self.db_connector.is_connected():
+            print(f"✅ DB 연결: {self.db_connector.db_type} 데이터베이스에 연결됨")
+        else:
+            print("❌ DB 연결: 연결되지 않음")
+        
+        # 선택된 테이블
+        if self.state['선택된 테이블']:
+            print(f"✅ 선택된 테이블: {self.state['선택된 테이블']}")
+        else:
+            print("❌ 선택된 테이블: 없음")
+        
+        # 마지막 추출 파일
+        if self.state['마지막 추출 파일']:
+            print(f"✅ 마지막 추출 파일: {self.state['마지막 추출 파일']}")
+        else:
+            print("❌ 마지막 추출 파일: 없음")
+            
+        # 설정 프로필
+        print(f"⚙️ 설정 프로필: {self.state['설정 프로필']}")
+        
+        print("-" * 40)
     
     def main_menu(self) -> None:
         """메인 메뉴 표시"""
@@ -112,8 +137,8 @@ class DBExportCLI(BaseCLI):
             elif choice == 7:
                 print("\n프로그램을 종료합니다. 감사합니다!")
                 # 연결 닫기
-                if self.state['DB 연결'] is not None:
-                    self.state['DB 연결'].close()
+                if self.db_connector.is_connected():
+                    self.db_connector.close()
                     print("데이터베이스 연결을 닫았습니다.")
                 break
     
@@ -136,6 +161,7 @@ class DBExportCLI(BaseCLI):
             config_path = os.path.join(project_root, "config", "db_config.json")
             
             if os.path.exists(config_path):
+                import json
                 with open(config_path, 'r') as f:
                     config = json.load(f)
                 
@@ -173,18 +199,16 @@ class DBExportCLI(BaseCLI):
         # 프로필 변경
         if new_profile != current_profile:
             # 기존 연결 닫기
-            if self.state['DB 연결'] is not None:
-                try:
-                    self.state['DB 연결'].close()
-                except:
-                    pass
-                self.update_state('DB 연결', None)
-                self.update_state('DB 유형', None)
-                self.update_state('선택된 테이블', None)
+            if self.db_connector.is_connected():
+                self.db_connector.close()
             
-            # 새 프로필로 연결 정보 로드
-            self.connection_params = load_db_config(new_profile)
+            # 새 프로필로 커넥터 초기화
+            self.db_connector = DBConnector(new_profile)
+            self.db_exporter = None  # 연결 후 다시 초기화됨
+            
+            # 상태 업데이트
             self.update_state('설정 프로필', new_profile)
+            self.update_state('선택된 테이블', None)
             
             self.show_success(f"설정 프로필을 '{new_profile}'(으)로 변경했습니다.")
         else:
@@ -202,9 +226,8 @@ class DBExportCLI(BaseCLI):
         print(f"현재 설정 프로필: {self.state['설정 프로필']}")
         
         # 기존 연결 닫기
-        if self.state['DB 연결'] is not None:
-            self.state['DB 연결'].close()
-            self.update_state('DB 연결', None)
+        if self.db_connector.is_connected():
+            self.db_connector.close()
             print("기존 데이터베이스 연결을 닫았습니다.")
         
         # 데이터베이스 유형 선택
@@ -218,11 +241,14 @@ class DBExportCLI(BaseCLI):
             db_file = self.get_input("SQLite 데이터베이스 파일 경로", "database.db")
             
             try:
-                import sqlite3
-                connection = sqlite3.connect(db_file)
-                self.update_state('DB 연결', connection)
-                self.update_state('DB 유형', 'sqlite')
-                self.show_success(f"SQLite 데이터베이스 '{db_file}'에 연결되었습니다.")
+                if self.db_connector.connect(db_type_lower, database=db_file):
+                    # 연결 성공 시 익스포터 초기화
+                    self.db_exporter = DBExporter(self.db_connector)
+                    self.db_exporter.set_export_params(self.export_params)
+                    
+                    self.show_success(f"SQLite 데이터베이스 '{db_file}'에 연결되었습니다.")
+                else:
+                    self.show_error("SQLite 데이터베이스 연결 실패")
             except Exception as e:
                 self.show_error(f"SQLite 데이터베이스 연결 실패: {str(e)}")
                 logger.exception("SQLite 연결 실패")
@@ -234,44 +260,47 @@ class DBExportCLI(BaseCLI):
         print(f"\n{db_types[db_type_idx]} 연결 정보 입력:")
         
         # 연결 정보 입력 (설정 파일의 값을 기본값으로 사용)
-        host = self.get_input("호스트", self.connection_params.get('host', 'localhost'))
-        port = self.get_numeric_input(
-            "포트", 
-            self.connection_params.get('port', {}).get(db_type_lower, 3306), 
-            min_val=1, 
-            max_val=65535
-        )
-        database = self.get_input("데이터베이스 이름", self.connection_params.get('database', ''))
-        username = self.get_input("사용자 이름", self.connection_params.get('username', ''))
+        connection_params = self.db_connector.get_connection_params()
+        
+        host = self.get_input("호스트", connection_params.get('host', 'localhost'))
+        
+        # 포트 기본값 설정
+        default_ports = {
+            'mysql': 3306, 'postgresql': 5432, 'sqlserver': 1433, 'oracle': 1521
+        }
+        default_port = default_ports.get(db_type_lower, 3306)
+        
+        # 포트 처리
+        if 'port' in connection_params and isinstance(connection_params['port'], dict):
+            if db_type_lower in connection_params['port']:
+                default_port = connection_params['port'][db_type_lower]
+        
+        port = self.get_numeric_input("포트", default_port, min_val=1, max_val=65535)
+        database = self.get_input("데이터베이스 이름", connection_params.get('database', ''))
+        username = self.get_input("사용자 이름", connection_params.get('username', ''))
         
         # 비밀번호는 설정에 값이 있어도 표시하지 않음
         password = self.get_input("비밀번호 (입력하지 않으면 설정 파일의 값 사용)")
-        if not password and 'password' in self.connection_params:
-            password = self.connection_params['password']
-        
-        # 연결 정보 저장
-        self.connection_params['host'] = host
-        if 'port' not in self.connection_params:
-            self.connection_params['port'] = {}
-        self.connection_params['port'][db_type_lower] = port
-        self.connection_params['database'] = database
-        self.connection_params['username'] = username
-        self.connection_params['password'] = password
+        if not password and 'password' in connection_params:
+            password = connection_params['password']
         
         # 데이터베이스 연결 시도
         try:
-            connection = get_db_connection(
+            if self.db_connector.connect(
                 db_type=db_type_lower,
                 host=host,
                 port=port,
                 database=database,
                 username=username,
                 password=password
-            )
-            
-            self.update_state('DB 연결', connection)
-            self.update_state('DB 유형', db_type_lower)
-            self.show_success(f"{db_types[db_type_idx]} 데이터베이스에 연결되었습니다.")
+            ):
+                # 연결 성공 시 익스포터 초기화
+                self.db_exporter = DBExporter(self.db_connector)
+                self.db_exporter.set_export_params(self.export_params)
+                
+                self.show_success(f"{db_types[db_type_idx]} 데이터베이스에 연결되었습니다.")
+            else:
+                self.show_error("데이터베이스 연결 실패")
             
         except Exception as e:
             self.show_error(f"데이터베이스 연결 실패: {str(e)}")
@@ -284,13 +313,13 @@ class DBExportCLI(BaseCLI):
         self.print_header("테이블 목록")
         
         # 연결 확인
-        if self.state['DB 연결'] is None:
+        if not self.db_connector.is_connected():
             self.show_error("데이터베이스 연결이 설정되지 않았습니다. 먼저 연결 설정을 수행하세요.")
             self.wait_for_user()
             return
         
         try:
-            tables = get_available_tables(self.state['DB 연결'], self.state['DB 유형'])
+            tables = self.db_connector.get_tables()
             
             if not tables:
                 print("데이터베이스에 테이블이 없습니다.")
@@ -311,7 +340,7 @@ class DBExportCLI(BaseCLI):
                             self.show_success(f"테이블 '{selected_table}'을(를) 선택했습니다.")
                             
                             # 테이블 행 수 표시
-                            count = get_row_count(self.state['DB 연결'], selected_table)
+                            count = self.db_connector.get_row_count(selected_table)
                             print(f"테이블 '{selected_table}'에는 약 {count:,}개의 행이 있습니다.")
                         else:
                             self.show_error(f"유효한 번호를 입력하세요 (1-{len(tables)})")
@@ -329,7 +358,7 @@ class DBExportCLI(BaseCLI):
         self.print_header("테이블 스키마 보기")
         
         # 연결 확인
-        if self.state['DB 연결'] is None:
+        if not self.db_connector.is_connected():
             self.show_error("데이터베이스 연결이 설정되지 않았습니다. 먼저 연결 설정을 수행하세요.")
             self.wait_for_user()
             return
@@ -345,7 +374,7 @@ class DBExportCLI(BaseCLI):
         
         if table_name is None:
             try:
-                tables = get_available_tables(self.state['DB 연결'], self.state['DB 유형'])
+                tables = self.db_connector.get_tables()
                 
                 if not tables:
                     self.show_error("데이터베이스에 테이블이 없습니다.")
@@ -378,7 +407,7 @@ class DBExportCLI(BaseCLI):
         
         # 선택한 테이블의 스키마 보기
         try:
-            schema = get_table_schema(self.state['DB 연결'], table_name, self.state['DB 유형'])
+            schema = self.db_connector.get_schema(table_name)
             
             print(f"\n테이블 '{table_name}'의 스키마:\n")
             print("-" * 50)
@@ -391,7 +420,7 @@ class DBExportCLI(BaseCLI):
             print("-" * 50)
             
             # 행 수 표시
-            count = get_row_count(self.state['DB 연결'], table_name)
+            count = self.db_connector.get_row_count(table_name)
             print(f"\n테이블 '{table_name}'에는 약 {count:,}개의 행이 있습니다.")
             
             # 현재 테이블로 설정
@@ -407,11 +436,15 @@ class DBExportCLI(BaseCLI):
         """SQL 쿼리 실행 및 CSV 추출 메뉴"""
         self.print_header("SQL 쿼리 실행 및 CSV 추출")
         
-        # 연결 확인
-        if self.state['DB 연결'] is None:
+        # 연결 및 익스포터 확인
+        if not self.db_connector.is_connected():
             self.show_error("데이터베이스 연결이 설정되지 않았습니다. 먼저 연결 설정을 수행하세요.")
             self.wait_for_user()
             return
+        
+        if self.db_exporter is None:
+            self.db_exporter = DBExporter(self.db_connector)
+            self.db_exporter.set_export_params(self.export_params)
         
         # SQL 쿼리 입력 방법 선택
         print("SQL 쿼리 입력 방법을 선택하세요:\n")
@@ -469,35 +502,14 @@ class DBExportCLI(BaseCLI):
             return
         
         try:
-            # 쿼리 실행 및 CSV 저장
-            cursor = self.state['DB 연결'].cursor()
-            cursor.execute(query)
+            # DBExporter를 사용하여 쿼리 실행 및 결과 추출
+            result_path = self.db_exporter.export_query_to_csv(query, output_file)
             
-            # 결과 가져오기
-            result = cursor.fetchall()
-            
-            # 결과가 비어있는지 확인
-            if not result:
-                self.show_warning("쿼리 결과가 비어있습니다.")
-                self.wait_for_user()
-                return
-            
-            # 컬럼 이름 가져오기
-            column_names = [desc[0] for desc in cursor.description]
-            
-            # CSV 파일로 저장
-            with open(output_file, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f, delimiter=self.export_params['csv_separator'])
-                
-                # 헤더 쓰기
-                if self.export_params['include_header']:
-                    writer.writerow(column_names)
-                
-                # 데이터 쓰기
-                writer.writerows(result)
-            
-            self.update_state('마지막 추출 파일', output_file)
-            self.show_success(f"쿼리 결과가 '{output_file}'에 저장되었습니다. ({len(result):,}개 행)")
+            if result_path:
+                self.update_state('마지막 추출 파일', str(result_path))
+                self.show_success(f"쿼리 결과가 '{result_path}'에 저장되었습니다.")
+            else:
+                self.show_error("쿼리 실행 또는 결과 추출에 실패했습니다.")
             
         except Exception as e:
             self.show_error(f"쿼리 실행 실패: {str(e)}")
@@ -509,11 +521,15 @@ class DBExportCLI(BaseCLI):
         """테이블 직접 CSV 추출 메뉴"""
         self.print_header("테이블 직접 CSV 추출")
         
-        # 연결 확인
-        if self.state['DB 연결'] is None:
+        # 연결 및 익스포터 확인
+        if not self.db_connector.is_connected():
             self.show_error("데이터베이스 연결이 설정되지 않았습니다. 먼저 연결 설정을 수행하세요.")
             self.wait_for_user()
             return
+        
+        if self.db_exporter is None:
+            self.db_exporter = DBExporter(self.db_connector)
+            self.db_exporter.set_export_params(self.export_params)
         
         # 테이블 선택
         table_name = None
@@ -526,7 +542,7 @@ class DBExportCLI(BaseCLI):
         
         if table_name is None:
             try:
-                tables = get_available_tables(self.state['DB 연결'], self.state['DB 유형'])
+                tables = self.db_connector.get_tables()
                 
                 if not tables:
                     self.show_error("데이터베이스에 테이블이 없습니다.")
@@ -568,37 +584,23 @@ class DBExportCLI(BaseCLI):
         
         # 조건 설정 (선택적)
         use_condition = self.get_yes_no_input("\n조건(WHERE 절)을 추가하시겠습니까?", default=False)
-        condition = ""
+        condition = None
         if use_condition:
             print("WHERE 절에 사용할 조건을 입력하세요:")
             condition = input().strip()
         
         # 정렬 설정 (선택적)
         use_order = self.get_yes_no_input("정렬(ORDER BY 절)을 추가하시겠습니까?", default=False)
-        order_by = ""
+        order_by = None
         if use_order:
             print("ORDER BY 절에 사용할 정렬 기준을 입력하세요:")
             order_by = input().strip()
         
         # 제한 설정 (선택적)
         use_limit = self.get_yes_no_input("행 수 제한(LIMIT 절)을 추가하시겠습니까?", default=False)
-        limit = 0
+        limit = None
         if use_limit:
             limit = self.get_numeric_input("추출할 최대 행 수", 1000, min_val=1)
-        
-        # 쿼리 구성
-        query = f"SELECT * FROM {table_name}"
-        if condition:
-            query += f" WHERE {condition}"
-        if order_by:
-            query += f" ORDER BY {order_by}"
-        if use_limit:
-            query += f" LIMIT {limit}"
-        
-        print(f"\n실행할 쿼리:")
-        print("-" * 50)
-        print(query)
-        print("-" * 50)
         
         # 테이블 추출 확인
         execute = self.get_yes_no_input("\n테이블을 추출하시겠습니까?")
@@ -611,36 +613,21 @@ class DBExportCLI(BaseCLI):
             # 추출 시작
             print("\n테이블 추출 중...")
             
-            # 테이블 스키마 가져오기
-            cursor = self.state['DB 연결'].cursor()
-            cursor.execute(query)
+            # DBExporter를 사용하여 테이블 추출
+            result_path = self.db_exporter.export_table_to_csv(
+                table_name=table_name,
+                output_file=output_file,
+                condition=condition,
+                order_by=order_by,
+                limit=limit
+            )
             
-            # 컬럼 이름 가져오기
-            column_names = [desc[0] for desc in cursor.description]
-            
-            # CSV 파일로 저장
-            with open(output_file, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f, delimiter=self.export_params['csv_separator'])
-                
-                # 헤더 쓰기
-                if self.export_params['include_header']:
-                    writer.writerow(column_names)
-                
-                # 청크 단위로 데이터 쓰기
-                total_rows = 0
-                chunk_size = self.export_params['chunk_size']
-                
-                while True:
-                    rows = cursor.fetchmany(chunk_size)
-                    if not rows:
-                        break
-                    
-                    writer.writerows(rows)
-                    total_rows += len(rows)
-                    print(f"\r{total_rows:,}개 행 추출 완료...", end="")
-            
-            self.update_state('마지막 추출 파일', output_file)
-            self.show_success(f"\n테이블 '{table_name}'의 데이터가 '{output_file}'에 저장되었습니다. ({total_rows:,}개 행)")
+            if result_path:
+                self.update_state('마지막 추출 파일', str(result_path))
+                self.update_state('선택된 테이블', table_name)
+                self.show_success(f"\n테이블 '{table_name}'의 데이터가 '{result_path}'에 저장되었습니다.")
+            else:
+                self.show_error("\n테이블 추출에 실패했습니다.")
             
         except Exception as e:
             self.show_error(f"테이블 추출 실패: {str(e)}")
@@ -700,6 +687,10 @@ class DBExportCLI(BaseCLI):
         self.export_params['output_path'] = Path(output_path_str)
         os.makedirs(self.export_params['output_path'], exist_ok=True)
         
+        # 익스포터가 있으면 설정 업데이트
+        if self.db_exporter:
+            self.db_exporter.set_export_params(self.export_params)
+        
         # 현재 설정을 설정 파일에 저장할지 여부
         save_to_config = self.get_yes_no_input("\n변경된 설정을 설정 파일에 저장하시겠습니까?", default=False)
         if save_to_config:
@@ -708,6 +699,7 @@ class DBExportCLI(BaseCLI):
                 config_path = os.path.join(project_root, "config", "db_config.json")
                 
                 # 설정 파일 로드
+                import json
                 with open(config_path, 'r') as f:
                     config = json.load(f)
                 
@@ -735,26 +727,19 @@ class DBExportCLI(BaseCLI):
     def run(self) -> None:
         """CLI 실행"""
         try:
-            
             # 메인 메뉴 실행
             self.main_menu()
         except KeyboardInterrupt:
             print("\n\n프로그램이 사용자에 의해 중단되었습니다.")
             # 연결 닫기
-            if self.state['DB 연결'] is not None:
-                try:
-                    self.state['DB 연결'].close()
-                except:
-                    pass
+            if self.db_connector.is_connected():
+                self.db_connector.close()
         except Exception as e:
             self.show_error(f"예상치 못한 오류가 발생했습니다: {str(e)}")
             logger.exception("예상치 못한 오류 발생")
             # 연결 닫기
-            if self.state['DB 연결'] is not None:
-                try:
-                    self.state['DB 연결'].close()
-                except:
-                    pass
+            if self.db_connector.is_connected():
+                self.db_connector.close()
 
 def main():
     """메인 함수: CLI 실행"""
