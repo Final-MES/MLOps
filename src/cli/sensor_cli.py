@@ -35,6 +35,11 @@ from src.utils.visualization import (
     plot_sensor_data, plot_attention_weights, plot_feature_importance
 )
 
+# 데이터베이스 유틸리티 임포트
+from src.utils.db.connector import DBConnector
+from src.utils.db.exporter import DBExporter
+from src.utils.config_loader import load_db_config, load_export_settings
+
 # 로깅 설정
 logger = logging.getLogger(__name__)
 
@@ -57,7 +62,8 @@ class SensorCLI(BaseCLI):
             'training_history': None,
             'evaluation_result': None,
             'device': torch.device("cuda" if torch.cuda.is_available() else "cpu"),
-            'current_model_path': None
+            'current_model_path': None,
+            'db_connected': False
         }
         
         # 모델 파라미터
@@ -137,6 +143,12 @@ class SensorCLI(BaseCLI):
         else:
             print("❌ 배포: 미준비")
         
+        # 데이터베이스 연결 상태
+        if self.state['db_connected']:
+            print(f"✅ 데이터베이스: 연결됨")
+        else:
+            print("❌ 데이터베이스: 연결되지 않음")
+
         print("-" * 40)
     
     def main_menu(self) -> None:
@@ -1031,6 +1043,161 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
         """필요한 디렉토리 생성"""
         for dir_path in self.paths.values():
             os.makedirs(dir_path, exist_ok=True)
+
+    def _ensure_db_connection(self) -> bool:
+        """
+        데이터베이스 연결 확인 및 필요시 연결 설정
+        
+        Returns:
+            bool: 연결 성공 여부
+        """
+        # 이미 연결되어 있으면 True 반환
+        if self.db_connector and self.state['db_connected']:
+            return True
+            
+        # 연결 설정 메뉴 표시
+        self.print_header("데이터베이스 연결 설정")
+        
+        print("데이터베이스 연결 정보를 설정합니다.\n")
+        
+        # 프로필 선택
+        profiles = ["default", "development", "production"]
+        # 설정 파일 확인
+        config_path = os.path.join(project_root, "config", "db_config.json")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                if "connections" in config:
+                    profiles = list(config["connections"].keys())
+            except:
+                pass  # 오류 발생 시 기본 프로필 사용
+        
+        print("설정 프로필 선택:")
+        for i, profile in enumerate(profiles, 1):
+            print(f"{i}. {profile}")
+        
+        profile_choice = self.get_input("선택할 프로필 번호", "1")
+        try:
+            profile_idx = int(profile_choice) - 1
+            if 0 <= profile_idx < len(profiles):
+                selected_profile = profiles[profile_idx]
+            else:
+                self.show_error(f"유효한 번호를 입력하세요 (1-{len(profiles)})")
+                return False
+        except ValueError:
+            self.show_error("숫자를 입력하세요")
+            return False
+        
+        # DB 커넥터 초기화 (아직 연결은 안 함)
+        if not self.db_connector:
+            self.db_connector = DBConnector(config_profile=selected_profile)
+        
+        # 데이터베이스 유형 선택
+        print("\n데이터베이스 유형 선택:")
+        db_types = ["MySQL", "PostgreSQL", "SQLite", "SQL Server", "Oracle"]
+        db_type_idx = self.show_menu(db_types, "데이터베이스 유형")
+        db_type_lower = db_types[db_type_idx].lower()
+        
+        # SQLite는 파일 경로만 필요
+        if db_type_lower == 'sqlite':
+            db_file = self.get_input("SQLite 데이터베이스 파일 경로", "database.db")
+            
+            try:
+                # 연결 시도
+                if self.db_connector.connect(db_type_lower, database=db_file):
+                    self.state['db_connected'] = True
+                    self.show_success(f"SQLite 데이터베이스 '{db_file}'에 연결되었습니다.")
+                    return True
+                else:
+                    self.show_error("SQLite 데이터베이스 연결 실패")
+                    return False
+            except Exception as e:
+                self.show_error(f"SQLite 데이터베이스 연결 실패: {str(e)}")
+                logger.exception("SQLite 연결 실패")
+                return False
+        
+        # 다른 데이터베이스는 연결 정보 필요
+        print(f"\n{db_types[db_type_idx]} 연결 정보 입력:")
+        
+        # 연결 정보 입력 (설정 파일의 값을 기본값으로 사용)
+        connection_params = self.db_connector.get_connection_params()
+        
+        host = self.get_input("호스트", connection_params.get('host', 'localhost'))
+        
+        # 포트 기본값 설정
+        default_ports = {
+            'mysql': 3306, 'postgresql': 5432, 'sqlserver': 1433, 'oracle': 1521
+        }
+        default_port = default_ports.get(db_type_lower, 3306)
+        
+        # 포트 처리
+        if 'port' in connection_params and isinstance(connection_params['port'], dict):
+            if db_type_lower in connection_params['port']:
+                default_port = connection_params['port'][db_type_lower]
+        
+        port = self.get_numeric_input("포트", default_port, min_val=1, max_val=65535)
+        database = self.get_input("데이터베이스 이름", connection_params.get('database', ''))
+        username = self.get_input("사용자 이름", connection_params.get('username', ''))
+        
+        # 비밀번호는 설정에 값이 있어도 표시하지 않음
+        password = self.get_input("비밀번호 (입력하지 않으면 설정 파일의 값 사용)")
+        if not password and 'password' in connection_params:
+            password = connection_params['password']
+        
+        # 데이터베이스 연결 시도
+        try:
+            if self.db_connector.connect(
+                db_type=db_type_lower,
+                host=host,
+                port=port,
+                database=database,
+                username=username,
+                password=password
+            ):
+                self.state['db_connected'] = True
+                self.show_success(f"{db_types[db_type_idx]} 데이터베이스에 연결되었습니다.")
+                return True
+            else:
+                self.show_error("데이터베이스 연결 실패")
+                return False
+        except Exception as e:
+            self.show_error(f"데이터베이스 연결 실패: {str(e)}")
+            logger.exception("데이터베이스 연결 실패")
+            return False
+    
+    def db_integration_menu(self) -> None:
+        """데이터베이스 통합 메뉴"""
+        while True:
+            self.print_header("데이터베이스 통합")
+            
+            print("모델 결과 및 센서 데이터를 데이터베이스에 저장합니다.\n")
+            
+            menu_options = [
+                "데이터베이스 연결 설정",
+                "센서 데이터 저장",
+                "예측 이력 저장",
+                "돌아가기"
+            ]
+            
+            choice = self.show_menu(menu_options, "데이터 DB로 전송")
+            
+            if choice == 1:
+                # 데이터베이스 연결 설정
+                self._ensure_db_connection()
+            elif choice == 2:
+                # 센서 데이터 저장 기능
+                self.show_message("모델 평가 결과 저장 기능은 아직 구현되지 않았습니다.")
+                # 이 부분은 다음 단계에서 구현할 예정입니다
+            elif choice == 3:
+                # 예측 이력 저장
+                self.show_message("예측 이력 저장 기능은 아직 구현되지 않았습니다.")
+                # 이 부분은 다음 단계에서 구현할 예정입니다
+            elif choice == 4:
+                # 메인 메뉴로 돌아가기
+                return
+
+    
     def main_menu(self) -> None:
         """메인 메뉴 표시"""
         while True:
@@ -1046,6 +1213,7 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
             print("6. 저장된 데이터 로드")
             print("7. 저장된 모델 로드")
             print("8. 시스템 설정")
+            print("9. 데이터 DB로 전송")
             print("0. 종료\n")
         
             self.print_status()
@@ -1068,6 +1236,8 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
                 self.load_model_menu()
             elif choice == "8":
                 self.system_config_menu()
+            elif choice == "9":
+                self.db_integration_menu()  # 새로운 메뉴 메서드 호출
             elif choice == "0":
                 print("\n프로그램을 종료합니다. 감사합니다!")
                 break
