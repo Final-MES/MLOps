@@ -17,6 +17,7 @@ import numpy as np
 from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
 import shutil
+import cv2
 
 # 프로젝트 루트 경로 추가
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1325,15 +1326,190 @@ def deploy_model_menu(self) -> None:
     input("\n계속하려면 Enter 키를 누르세요...")
 
 def system_config_menu(self) -> None:
-    """시스템 설정 메뉴"""
-    self.print_header("시스템 설정")
+    """
+    시스템 구성 설정을 위한 메뉴 인터페이스를 제공합니다.
+    사용자가 GPU 사용, 이미지 처리 스레드 수, 캐시 크기 등의 시스템 설정을 변경할 수 있습니다.
+    """
+    while True:
+        print("\n===== 시스템 구성 메뉴 =====")
+        print("1. GPU 사용 설정")
+        print("2. 이미지 처리 스레드 수 설정")
+        print("3. 이미지 캐시 크기 설정")
+        print("4. 출력 디렉토리 설정")
+        print("5. 로깅 레벨 설정")
+        print("6. 현재 설정 확인")
+        print("0. 이전 메뉴로 돌아가기")
+        
+        choice = input("\n메뉴를 선택하세요: ")
+        
+        if choice == "1":
+            self._configure_gpu_usage()
+        elif choice == "2":
+            self._configure_processing_threads()
+        elif choice == "3":
+            self._configure_cache_size()
+        elif choice == "4":
+            self._configure_output_directory()
+        elif choice == "5":
+            self._configure_logging_level()
+        elif choice == "6":
+            self._show_current_config()
+        elif choice == "0":
+            print("이전 메뉴로 돌아갑니다.")
+            break
+        else:
+            print("잘못된 선택입니다. 다시 시도해주세요.")
     
-    print("시스템 설정을 변경합니다.\n")
+def _configure_gpu_usage(self) -> None:
+    """GPU 사용 여부 및 설정을 구성합니다."""
+    print("\n----- GPU 사용 설정 -----")
+    print("현재 GPU 사용 설정: ", "활성화" if self.config.get("use_gpu", False) else "비활성화")
     
-    # 여기에 시스템 설정 코드를 구현합니다.
-    # TODO: 구현
+    choice = input("GPU를 사용하시겠습니까? (y/n): ").lower()
+    if choice == 'y':
+        self.config["use_gpu"] = True
+        available_gpus = self._get_available_gpus()
+        if available_gpus:
+            print("\n사용 가능한 GPU 목록:")
+            for i, gpu in enumerate(available_gpus):
+                print(f"{i+1}. {gpu}")
+            
+            gpu_choice = input("\n사용할 GPU 번호를 선택하세요 (모두 사용: all): ")
+            if gpu_choice.lower() == 'all':
+                self.config["gpu_devices"] = "all"
+            else:
+                try:
+                    gpu_idx = int(gpu_choice) - 1
+                    if 0 <= gpu_idx < len(available_gpus):
+                        self.config["gpu_devices"] = str(gpu_idx)
+                    else:
+                        print("잘못된 GPU 번호입니다. 기본값으로 설정합니다.")
+                        self.config["gpu_devices"] = "0"
+                except ValueError:
+                    print("잘못된 입력입니다. 기본값으로 설정합니다.")
+                    self.config["gpu_devices"] = "0"
+        else:
+            print("사용 가능한 GPU가 없습니다. CPU 모드로 전환합니다.")
+            self.config["use_gpu"] = False
+    else:
+        self.config["use_gpu"] = False
     
-    input("\n계속하려면 Enter 키를 누르세요...")
+    self._save_config()
+    print(f"GPU 설정이 {'활성화' if self.config.get('use_gpu', False) else '비활성화'}되었습니다.")
+
+def _configure_processing_threads(self) -> None:
+    """이미지 처리에 사용할 스레드 수를 설정합니다."""
+    print("\n----- 이미지 처리 스레드 설정 -----")
+    current_threads = self.config.get("processing_threads", 4)
+    print(f"현재 이미지 처리 스레드 수: {current_threads}")
+    
+    try:
+        new_threads = int(input("설정할 스레드 수를 입력하세요 (1-16): "))
+        if 1 <= new_threads <= 16:
+            self.config["processing_threads"] = new_threads
+            self._save_config()
+            print(f"이미지 처리 스레드 수가 {new_threads}로 설정되었습니다.")
+        else:
+            print("유효한 범위가 아닙니다. 1에서 16 사이의 값을 입력하세요.")
+    except ValueError:
+        print("숫자를 입력해주세요.")
+
+def _configure_cache_size(self) -> None:
+    """이미지 캐시 크기를 설정합니다."""
+    print("\n----- 이미지 캐시 크기 설정 -----")
+    current_size = self.config.get("cache_size_mb", 512)
+    print(f"현재 이미지 캐시 크기: {current_size}MB")
+    
+    try:
+        new_size = int(input("설정할 캐시 크기를 입력하세요 (MB 단위, 128-4096): "))
+        if 128 <= new_size <= 4096:
+            self.config["cache_size_mb"] = new_size
+            self._save_config()
+            print(f"이미지 캐시 크기가 {new_size}MB로 설정되었습니다.")
+        else:
+            print("유효한 범위가 아닙니다. 128에서 4096 사이의 값을 입력하세요.")
+    except ValueError:
+        print("숫자를 입력해주세요.")
+
+def _configure_output_directory(self) -> None:
+    """결과물 저장 디렉토리를 설정합니다."""
+    print("\n----- 출력 디렉토리 설정 -----")
+    current_dir = self.config.get("output_directory", "./output")
+    print(f"현재 출력 디렉토리: {current_dir}")
+    
+    new_dir = input("새 출력 디렉토리 경로를 입력하세요 (기본값 유지: 엔터): ")
+    if new_dir:
+        import os
+        if not os.path.exists(new_dir):
+            try:
+                os.makedirs(new_dir)
+                print(f"디렉토리 생성됨: {new_dir}")
+            except OSError as e:
+                print(f"디렉토리 생성 실패: {e}")
+                return
+        
+        self.config["output_directory"] = new_dir
+        self._save_config()
+        print(f"출력 디렉토리가 {new_dir}로 설정되었습니다.")
+
+def _configure_logging_level(self) -> None:
+    """로깅 레벨을 설정합니다."""
+    print("\n----- 로깅 레벨 설정 -----")
+    logging_levels = {
+        "1": "DEBUG",
+        "2": "INFO",
+        "3": "WARNING",
+        "4": "ERROR",
+        "5": "CRITICAL"
+    }
+    
+    current_level = self.config.get("logging_level", "INFO")
+    print(f"현재 로깅 레벨: {current_level}")
+    
+    print("\n로깅 레벨 선택:")
+    for key, level in logging_levels.items():
+        print(f"{key}. {level}")
+    
+    choice = input("\n로깅 레벨을 선택하세요: ")
+    if choice in logging_levels:
+        self.config["logging_level"] = logging_levels[choice]
+        self._save_config()
+        print(f"로깅 레벨이 {logging_levels[choice]}로 설정되었습니다.")
+    else:
+        print("잘못된 선택입니다.")
+
+def _show_current_config(self) -> None:
+    """현재 시스템 설정을 표시합니다."""
+    print("\n===== 현재 시스템 설정 =====")
+    for key, value in self.config.items():
+        print(f"{key}: {value}")
+    
+    input("\n계속하려면 엔터를 누르세요...")
+
+def _get_available_gpus(self) -> list:
+    """
+    사용 가능한 GPU 목록을 반환합니다.
+    """
+    # 실제 환경에서는 여기에 GPU 감지 로직이 들어갑니다
+    # 예시 구현:
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return [f"GPU {i}: {torch.cuda.get_device_name(i)}" for i in range(torch.cuda.device_count())]
+        return []
+    except ImportError:
+        print("PyTorch가 설치되어 있지 않습니다. GPU 감지를 건너뜁니다.")
+        return []
+
+def _save_config(self) -> None:
+    """현재 구성을 설정 파일에 저장합니다."""
+    try:
+        import json
+        with open(self.config_file, 'w') as f:
+            json.dump(self.config, f, indent=4)
+        print("설정이 저장되었습니다.")
+    except Exception as e:
+        print(f"설정 저장 중 오류 발생: {e}")
 
 def print_status(self) -> None:
     """현재 상태 출력"""
