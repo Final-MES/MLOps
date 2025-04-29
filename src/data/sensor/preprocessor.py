@@ -388,49 +388,120 @@ class SensorDataPreprocessor:
         logger.info(f"통계적 모멘트 추출 완료: {len(processed_columns)}개 컬럼 생성됨")
         return result_df
 
-# 사용 예시
-if __name__ == "__main__":
-    # 로깅 설정
-    logging.basicConfig(level=logging.INFO)
+    def process_realtime_data(self, file_path: str, sequence_length: int = 100) -> np.ndarray:
+        """
+        실시간 센서 데이터를 모델 입력에 적합한 형태로 전처리합니다.
     
-    # 예시 데이터 생성 (실제 사용 시에는 실제 데이터로 대체)
-    time = np.linspace(0, 100, 1000)
-    normal_data = np.sin(time / 5) + np.random.normal(0, 0.1, 1000)
-    type1_data = np.sin(time / 5) + 0.5 + np.random.normal(0, 0.1, 1000)
-    type2_data = np.sin(time / 5) * 0.5 + np.random.normal(0, 0.1, 1000)
-    type3_data = np.sin(time / 5 + 1) + np.random.normal(0, 0.1, 1000)
+        이  함수는 'time', 'data' 형식의 CSV 파일을 읽어서
+        모델 입력에 적합한 시퀀스 데이터로 변환합니다.
     
-    sensor1 = pd.DataFrame({
-        'time': time,
-        'normal': normal_data,
-        'type1': type1_data,
-        'type2': type2_data,
-        'type3': type3_data
-    })
+        Args:
+            file_path (str): 데이터 파일 경로
+            sequence_length (int): 시퀀스 길이 (기본값: 100)
+        
+        Returns:
+            np.ndarray: 전처리된 시퀀스 데이터 (형태: [1, sequence_length, features])
+        """
+        try:
+           # 데이터 로드
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"파일을 찾을 수 없습니다: {file_path}")
+            
+            df = pd.read_csv(file_path)
+        
+            # 필요한 컬럼 확인
+            required_columns = ['time', 'data']
+            if not all(col in df.columns for col in required_columns):
+                logger.error(f"필요한 컬럼 {required_columns}이 데이터프레임에 없습니다.")
+                return None
+        
+            # 데이터 정규화 또는 스케일링 (필요한 경우)
+            # 이 부분은 기존 모델 학습에 사용된 스케일링 방식과 일치해야 합니다
+            data_array = df['data'].values
+        
+            # 시퀀스 데이터 생성
+            if len(data_array) < sequence_length:
+                logger.warning(f"데이터 길이({len(data_array)})가 시퀀스 길이({sequence_length})보다 작습니다.")
+                # 부족한 부분을 0으로 패딩
+                padded_data = np.zeros(sequence_length)
+                padded_data[:len(data_array)] = data_array
+                data_array = padded_data
+            elif len(data_array) > sequence_length:
+                # 최신 데이터 위주로 시퀀스 길이만큼 자르기
+                data_array = data_array[-sequence_length:]
+        
+            # 모델 입력 형태로 변환 (단일 특성이면 [1, sequence_length, 1] 형태)
+            # 여러 특성이 있는 경우 각 특성을 별도 열로 추가
+            model_input = data_array.reshape(1, sequence_length, 1)
+        
+            logger.info(f"실시간 데이터 전처리 완료: 형태={model_input.shape}")
+            return model_input
+        
+        except Exception as e:
+            logger.error(f"실시간 데이터 전처리 중 오류 발생: {str(e)}")
+            return None
+
+    def process_g2_realtime_data(self, file_path: str, sequence_length: int = 100) -> np.ndarray:
+        """
+        g2 실시간 센서 데이터를 모델 입력에 적합한 형태로 전처리합니다.
     
-    sensor2 = pd.DataFrame({
-        'time': time,
-        'normal': normal_data * 0.8,
-        'type1': type1_data * 0.8,
-        'type2': type2_data * 0.8,
-        'type3': type3_data * 0.8
-    })
+        이 함수는 g2 센서 데이터('time', 'data' 형식)를 읽어서
+        다중 센서 LSTM 모델 입력에 적합한 시퀀스 데이터로 변환합니다.
     
-    # 전처리기 초기화
-    preprocessor = SensorDataPreprocessor(window_size=15)
-    
-    # 보간 적용
-    sensor_data = {'sensor1': sensor1, 'sensor2': sensor2}
-    interpolated_data = preprocessor.interpolate_sensor_data(
-        sensor_data,
-        time_range=np.arange(0, 100, 0.001),
-        step=0.001
-    )
-    
-    # 이동 평균 적용
-    processed_sensor1 = preprocessor.apply_moving_average(
-        interpolated_data['sensor1'], 
-        columns=['normal', 'type1', 'type2', 'type3']
-    )
-    
-    print(f"처리된 센서 데이터 형태: {processed_sensor1.shape}")
+        Args:
+            file_path (str): 데이터 파일 경로
+            sequence_length (int): 시퀀스 길이 (기본값: 100)
+        
+        Returns:
+            np.ndarray: 전처리된 시퀀스 데이터 (형태: [1, sequence_length, features])
+        """
+        try:
+            # 데이터 로드
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"파일을 찾을 수 없습니다: {file_path}")
+            
+            df = pd.read_csv(file_path)
+        
+            # 필요한 컬럼 확인
+            if 'time' not in df.columns or 'data' not in df.columns:
+                logger.error("필요한 컬럼(time, data)이 데이터프레임에 없습니다.")
+                return None
+        
+            # 데이터 정규화 (기존 모델과 동일한 방식으로)
+            data_values = df['data'].values
+        
+            # MinMax 스케일링 적용 (기존 모델 학습에 사용된 방식과 동일해야 함)
+            # 여기서는 -1 ~ 1 범위로 가정합니다. 모델에 맞게 조정 필요
+            min_val = data_values.min()
+            max_val = data_values.max()
+            if max_val > min_val:
+                normalized_data = -1 + 2 * (data_values - min_val) / (max_val - min_val)
+            else:
+                normalized_data = np.zeros_like(data_values)
+        
+            # 시퀀스 데이터 생성 
+            if len(normalized_data) < sequence_length:
+                logger.warning(f"데이터 길이({len(normalized_data)})가 시퀀스 길이({sequence_length})보다 작습니다.")
+                # 부족한 부분을 0으로 패딩
+                padded_data = np.zeros(sequence_length)
+                padded_data[:len(normalized_data)] = normalized_data
+                sequence_data = padded_data
+            else:
+                # 최신 데이터를 시퀀스 길이만큼 사용
+                sequence_data = normalized_data[-sequence_length:]
+        
+            # 단일 샘플, 4개 특성을 가진 모델 입력 형태로 변환
+            # 현재는 단일 특성(data)만 있으므로 해당 특성을 4개의 입력 자리에 복사
+            # 실제 상황에 맞게 조정해야 할 수 있습니다
+            features = 4  # 모델의 입력 특성 수
+            model_input = np.zeros((1, sequence_length, features))
+        
+            for i in range(features):
+                model_input[0, :, i] = sequence_data
+            
+            logger.info(f"g2 실시간 데이터 전처리 완료: 형태={model_input.shape}")
+            return model_input
+        
+        except Exception as e:
+            logger.error(f"g2 실시간 데이터 전처리 중 오류 발생: {str(e)}")
+            return None

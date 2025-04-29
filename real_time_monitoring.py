@@ -170,7 +170,7 @@ class RealtimeMonitor:
         try:
             # g2 파일 로드 및 보간
             logger.info("g2 센서 데이터 로드 및 보간 중...")
-            interpolated_data = self.processor.load_and_interpolate_sensor_data(
+            interpolated_data = self.processor.process_g2_realtime_data(
                 self.data_dir, prefix='g2'
             )
             
