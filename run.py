@@ -26,8 +26,9 @@ def main():
     print("2. 이미지 데이터 분석")
     print("3. 텍스트 데이터 분석")
     print("4. 데이터베이스에서 CSV 추출")
+    print("5. CSV 데이터 블럭 생성")
     
-    choice = input("옵션을 선택하세요 (1-4): ")
+    choice = input("옵션을 선택하세요 (1-5): ")
     
     if choice == "1":
         from src.cli.sensor_cli import SensorCLI
@@ -42,6 +43,9 @@ def main():
     elif choice == "4":
         from src.cli.db_export_cli import main as db_export_main
         db_export_main()
+    elif choice == "5":
+        from src.cli.block_csv_cli import main as block_csv_main
+        block_csv_main()
     else:
         print("잘못된 선택입니다.")
 if __name__ == "__main__":
