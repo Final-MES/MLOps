@@ -52,6 +52,8 @@ class MainCLI(BaseCLI):
             
             menu_options = [
                 "센서 데이터 분석",
+                "텍스트 데이터 분석",
+                "이미지 데이터 분석",
                 "데이터베이스에서 CSV 추출",
                 "종료"
             ]
@@ -61,13 +63,12 @@ class MainCLI(BaseCLI):
             if choice == 0:
                 self.run_sensor_cli()
             elif choice == 1:
-                self.run_db_export_cli()
-            elif choice == 2:
-                print("\n프로그램을 종료합니다. 감사합니다!")
-                break
-            elif choice == "3":
                 self.run_text_cli()
-            elif choice == "4":
+            elif choice == 2:
+                self.run_image_cli()
+            elif choice == 3:
+                self.run_db_export_cli()
+            elif choice == 4:
                 print("\n프로그램을 종료합니다. 감사합니다!")
                 break
     def run_sensor_cli(self) -> None:
