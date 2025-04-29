@@ -1187,7 +1187,7 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
                 self._ensure_db_connection()
             elif choice == 2:
                 # 센서 데이터 저장 기능
-                self.show_message("모델 평가 결과 저장 기능은 아직 구현되지 않았습니다.")
+                self.show_message("센서 데이터 저장 기능은 아직 구현되지 않았습니다.")
                 # 이 부분은 다음 단계에서 구현할 예정입니다
             elif choice == 3:
                 # 예측 이력 저장
