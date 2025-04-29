@@ -12,7 +12,9 @@ import logging
 import argparse
 import numpy as np
 import pandas as pd
+import csv
 from pathlib import Path
+
 
 # 프로젝트 루트 경로 추가
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -110,34 +112,8 @@ def block_csv_menu():
     # 파일 존재 확인
     if not os.path.exists(input_path):
         print(f"⚠️ 경고: 파일 '{input_path}'이(가) 존재하지 않습니다.")
-        create_example = get_yes_no_input("예제 파일을 생성하시겠습니까?", default=True)
-        
-        if create_example:
-            # 예제 파일이 있는 디렉토리 생성
-            os.makedirs(os.path.dirname(input_path), exist_ok=True)
-            
-            # 예제 데이터 생성
-            time_col = np.arange(0, 1000, 0.1)  # 시간 데이터
-            col_b = np.sin(time_col * 0.1)  # B 컬럼 (사인 파형)
-            col_c = np.cos(time_col * 0.1)  # C 컬럼 (코사인 파형)
-            col_d = np.sin(time_col * 0.05)  # D 컬럼 (저주파 사인 파형)
-            col_e = np.random.normal(0, 0.5, size=len(time_col))  # E 컬럼 (랜덤 노이즈)
-            
-            # 데이터프레임 생성 및 저장
-            df = pd.DataFrame({
-                0: time_col, 
-                1: col_b, 
-                2: col_c, 
-                3: col_d, 
-                4: col_e
-            })
-            df.to_csv(input_path, index=False, header=False)
-            
-            print(f"✅ 예제 파일 '{input_path}'을(를) 생성했습니다.")
-        else:
-            print("❌ 파일이 없어 처리를 중단합니다.")
-            input("\n계속하려면 Enter 키를 누르세요...")
-            return
+        input("\n계속하려면 Enter 키를 누르세요...")
+        return
     
     # 출력 디렉토리 설정
     output_dir = get_input("출력 디렉토리 경로", default_output_dir)
@@ -147,7 +123,7 @@ def block_csv_menu():
     block_size = get_numeric_input("블럭 크기 (각 컬럼에서 가져올 데이터 개수)", 100, min_val=1)
     
     # 제외할 컬럼 설정
-    exclude_first_column = get_yes_no_input("첫 번째 컬럼(시간)을 제외하시겠습니까?", default=True)
+    exclude_first_column = get_yes_no_input("첫 번째 컬럼(시간)을 제외하시겠습니까?", default=False)
     exclude_columns = [0] if exclude_first_column else []
     
     # 추가로 제외할 컬럼 설정
@@ -159,16 +135,13 @@ def block_csv_menu():
             exclude_columns = sorted(list(set(exclude_columns)))  # 중복 제거 및 정렬
         except ValueError:
             print("⚠️ 경고: 잘못된 컬럼 번호 형식입니다. 추가 제외 컬럼을 무시합니다.")
-    
-    # 시각화 여부
-    visualize = get_yes_no_input("생성된 블럭을 시각화하시겠습니까?", default=True)
-    
+
     # 여러 블럭 생성 여부
-    create_multiple = get_yes_no_input("여러 개의 순차적 블럭을 생성하시겠습니까?", default=False)
+    create_multiple = get_yes_no_input("여러 개의 순차적 블럭을 생성하시겠습니까?", default=True)
     num_blocks = 1
     
     if create_multiple:
-        num_blocks = get_numeric_input("생성할 블럭 수", 5, min_val=1, max_val=100)
+        num_blocks = get_numeric_input("생성할 블럭 수", 25, min_val=1, max_val=100)
     
     # 처리 시작 확인
     print("\n입력 설정 요약:")
@@ -200,15 +173,23 @@ def block_csv_menu():
                 num_blocks=num_blocks
             )
             
-            # 결과 저장
-            output_path = os.path.join(output_dir, f"{file_name}_blocks_{block_size}x{num_blocks}.npy")
-            np.save(output_path, blocks)
+            # 결과 저장 (CSV 형식)
+            output_path = os.path.join(output_dir, f"{file_name}_blocks_{block_size}x{num_blocks}.csv")
+            
+            # CSV 파일로 저장
+            with open(output_path, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                # 헤더 추가 (블록 번호와 인덱스)
+                header = ['block_id', 'index', 'value']
+                
+                # 각 블록의 데이터를 행으로 저장 (값만 저장)
+                for block in blocks:
+                    for value in block:
+                        # 값만 저장 (리스트로 전달하면 CSV 형식으로 저장됨)
+                        writer.writerow([value])
             
             print(f"✅ {len(blocks)}개의 블럭이 생성되어 '{output_path}'에 저장되었습니다.")
-            
-            if visualize and len(blocks) > 0:
-                visualize_blocks(blocks, exclude_columns, block_size, file_name)
-                
+
         else:
             print("\n데이터 블럭 생성 중...")
             
@@ -218,22 +199,34 @@ def block_csv_menu():
                 exclude_columns=exclude_columns
             )
             
-            # 결과 저장
-            output_path = os.path.join(output_dir, f"{file_name}_block_{block_size}.npy")
-            np.save(output_path, block_data)
+            # 결과 저장 (CSV 형식)
+            output_path = os.path.join(output_dir, f"{file_name}_block_{block_size}.csv")
+            
+            # CSV 파일로 저장
+            with open(output_path, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                # 헤더 추가 (데이터 인덱스와 값)
+                header = ['index', 'value']
+                writer.writerow(header)
+                
+                # 데이터를 행으로 저장
+                for i, value in enumerate(block_data):
+                    writer.writerow([i, value])
             
             print(f"✅ 데이터 블럭이 생성되어 '{output_path}'에 저장되었습니다.")
             print(f"- 블럭 크기: {len(block_data)}")
-            
-            if visualize:
-                visualize_block(block_data, len(block_data) // block_size, block_size, file_name)
-            
-            # npy 파일 로드
-            npy_data = np.load(output_path)
 
-            # npy 파일 내용 출력
-            print("npy 파일 내용:")
-            print(npy_data)
+            # CSV 파일 내용 확인
+            print("CSV 파일이 생성되었습니다. 처음 몇 줄의 내용:")
+            try:
+                with open(output_path, 'r') as f:
+                    for i, line in enumerate(f):
+                        if i >= 5:  # 처음 5줄만 출력
+                            break
+                        print(line.strip())
+                print("...")
+            except Exception as e:
+                print(f"CSV 파일 읽기 실패: {str(e)}")
                 
     except Exception as e:
         print(f"❌ 오류 발생: {str(e)}")
@@ -241,160 +234,11 @@ def block_csv_menu():
     
     input("\n계속하려면 Enter 키를 누르세요...")
 
-def visualize_block(block_data, num_columns, block_size, file_name):
-    """데이터 블럭 시각화"""
-    try:
-        import matplotlib.pyplot as plt
-        
-        plt.figure(figsize=(12, 8))
-        
-        # 각 컬럼 데이터 시각화
-        for i in range(num_columns):
-            start_idx = i * block_size
-            end_idx = start_idx + block_size
-            
-            plt.subplot(num_columns, 1, i+1)
-            plt.plot(block_data[start_idx:end_idx])
-            plt.ylabel(f'Column {i+1}')
-            plt.grid(True)
-            
-            if i == 0:
-                plt.title(f'Block Visualization: {file_name}')
-                
-            if i == num_columns - 1:
-                plt.xlabel('Sample Index')
-        
-        plt.tight_layout()
-        
-        # 시각화 결과 저장
-        plots_dir = os.path.join(project_root, "plots")
-        os.makedirs(plots_dir, exist_ok=True)
-        
-        plot_path = os.path.join(plots_dir, f"{file_name}_block_visualization.png")
-        plt.savefig(plot_path)
-        
-        print(f"📊 블럭 시각화 저장 완료: {plot_path}")
-        
-    except Exception as e:
-        print(f"⚠️ 시각화 중 오류 발생: {str(e)}")
-        logger.error(f"시각화 중 오류 발생: {str(e)}")
-
-def visualize_blocks(blocks, exclude_columns, block_size, file_name):
-    """여러 데이터 블럭 시각화"""
-    try:
-        import matplotlib.pyplot as plt
-        
-        # 첫 번째 블럭만 시각화
-        first_block = blocks[0]
-        num_columns = len(first_block) // block_size
-        
-        plt.figure(figsize=(12, 8))
-        
-        # 각 컬럼 데이터 시각화
-        for i in range(num_columns):
-            start_idx = i * block_size
-            end_idx = start_idx + block_size
-            
-            plt.subplot(num_columns, 1, i+1)
-            plt.plot(first_block[start_idx:end_idx])
-            plt.ylabel(f'Column {i+1}')
-            plt.grid(True)
-            
-            if i == 0:
-                plt.title(f'First Block Visualization: {file_name} (Total: {len(blocks)} blocks)')
-                
-            if i == num_columns - 1:
-                plt.xlabel('Sample Index')
-        
-        plt.tight_layout()
-        
-        # 시각화 결과 저장
-        plots_dir = os.path.join(project_root, "plots")
-        os.makedirs(plots_dir, exist_ok=True)
-        
-        plot_path = os.path.join(plots_dir, f"{file_name}_blocks_visualization.png")
-        plt.savefig(plot_path)
-        
-        print(f"📊 블럭 시각화 저장 완료: {plot_path} (첫 번째 블럭만 시각화)")
-        
-    except Exception as e:
-        print(f"⚠️ 시각화 중 오류 발생: {str(e)}")
-        logger.error(f"시각화 중 오류 발생: {str(e)}")
-
 def main():
     """메인 함수: CLI 실행"""
-    try:
-        # 명령줄 인자 파싱
-        parser = argparse.ArgumentParser(description='CSV 데이터를 블럭 형태로 가공하는 도구')
-        parser.add_argument('--file', type=str, default=None,
-                          help='CSV 파일 경로 (기본값: data/vibrate/g2_sensor1.csv)')
-        parser.add_argument('--output', type=str, default=None,
-                          help='출력 디렉토리 (기본값: data/blocks)')
-        parser.add_argument('--block-size', type=int, default=100,
-                          help='블럭 크기 (기본값: 100)')
-        parser.add_argument('--num-blocks', type=int, default=1,
-                          help='생성할 블럭 수 (기본값: 1)')
-        parser.add_argument('--exclude-first', action='store_true',
-                          help='첫 번째 컬럼 제외 여부 (기본값: True)')
-        parser.add_argument('--no-visualize', action='store_true',
-                          help='시각화 생성하지 않음')
-        
-        args = parser.parse_args()
-        
-        # 명령줄 인자가 제공된 경우 직접 처리
-        if args.file is not None:
-            input_path = args.file
-            output_dir = args.output or os.path.join(project_root, "data", "blocks")
-            os.makedirs(output_dir, exist_ok=True)
-            
-            exclude_columns = [0] if args.exclude_first else []
-            visualize = not args.no_visualize
-            
-            try:
-                # 파일 이름 추출
-                file_name = os.path.splitext(os.path.basename(input_path))[0]
-                
-                # 단일/다중 블럭 생성
-                if args.num_blocks > 1:
-                    blocks = generate_sequential_column_blocks(
-                        csv_path=input_path,
-                        block_size=args.block_size,
-                        exclude_columns=exclude_columns,
-                        num_blocks=args.num_blocks
-                    )
-                    
-                    # 결과 저장
-                    output_path = os.path.join(output_dir, f"{file_name}_blocks_{args.block_size}x{args.num_blocks}.npy")
-                    np.save(output_path, blocks)
-                    print(f"✅ {len(blocks)}개의 블럭이 생성되어 '{output_path}'에 저장되었습니다.")
-                    
-                    if visualize and len(blocks) > 0:
-                        visualize_blocks(blocks, exclude_columns, args.block_size, file_name)
-                    
-                else:
-                    block_data = generate_column_blocks(
-                        csv_path=input_path,
-                        block_size=args.block_size,
-                        exclude_columns=exclude_columns
-                    )
-                    
-                    # 결과 저장
-                    output_path = os.path.join(output_dir, f"{file_name}_block_{args.block_size}.npy")
-                    np.save(output_path, block_data)
-                    print(f"✅ 데이터 블럭이 생성되어 '{output_path}'에 저장되었습니다.")
-                    
-                    if visualize:
-                        num_columns = len(block_data) // args.block_size
-                        visualize_block(block_data, num_columns, args.block_size, file_name)
-                
-                return 0
-                
-            except Exception as e:
-                print(f"❌ 오류 발생: {str(e)}")
-                logger.exception("데이터 블럭 생성 중 오류 발생")
-                return 1
-        
-        # 명령줄 인자가 없는 경우 대화형 메뉴 실행
+    
+    try:    
+        # 대화형 메뉴 실행
         block_csv_menu()
         return 0
         
