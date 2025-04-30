@@ -11,6 +11,7 @@ from pathlib import Path
 import torch
 from typing import Dict, List, Any, Optional, Tuple
 import glob
+import pandas as pd
 
 # 프로젝트 루트 경로 추가
 project_root = Path(__file__).parent.absolute()
@@ -60,7 +61,7 @@ class SensorDataUploader:
         self.batch_size = config.get('batch_size', 1000)  # API 업로드 배치 크기
         
         # 주기 설정 (분 단위)
-        self.interval_minutes = config.get('interval_minutes', 0.1) 
+        self.interval_seconds = config.get('interval_seconds', 0.1) 
         
         # 파일 패턴 설정
         self.file_patterns = config.get('file_patterns', ['g2_sensor*_blocks*.csv'])
@@ -467,7 +468,7 @@ class SensorDataUploader:
             logger.error("모델 로드 실패로 종료합니다.")
             return
         
-        logger.info(f"주기적 실행 시작: 간격 {self.interval_minutes}분, 최대 주기 {max_cycles if max_cycles > 0 else '무한'}")
+        logger.info(f"주기적 실행 시작: 간격 {self.interval_seconds}분, 최대 주기 {max_cycles if max_cycles > 0 else '무한'}")
         
         try:
             cycle_count = 0
@@ -489,12 +490,12 @@ class SensorDataUploader:
                 cycle_end_time = time.time()
                 cycle_duration = cycle_end_time - cycle_start_time
                 
-                wait_time = (self.interval_minutes * 60) - cycle_duration
+                wait_time = (self.interval_seconds) - cycle_duration
                 if wait_time > 0:
                     logger.info(f"다음 주기까지 {wait_time:.1f}초 대기 중...")
                     time.sleep(wait_time)
                 else:
-                    logger.warning(f"주기 처리에 {cycle_duration:.1f}초 소요, 간격({self.interval_minutes * 60}초)보다 길어 즉시 다음 주기 시작")
+                    logger.warning(f"주기 처리에 {cycle_duration:.1f}초 소요, 간격({self.interval_seconds * 60}초)보다 길어 즉시 다음 주기 시작")
                 
         except KeyboardInterrupt:
             logger.info("\n사용자에 의해 중단되었습니다.")
@@ -521,7 +522,7 @@ def main():
                       help='API 업로드 배치 크기')
     parser.add_argument('--file_patterns', type=str, nargs='+', default=['g2_sensor*_blocks*.csv'],
                       help='처리할 센서 파일 패턴 목록 (glob 패턴)')
-    parser.add_argument('--interval_minutes', type=int, default=30,
+    parser.add_argument('--interval_seconds', type=int, default=30,
                       help='처리 주기 (분 단위)')
     parser.add_argument('--max_cycles', type=int, default=-1,
                       help='최대 실행 주기 수 (-1은 무한 반복)')
