@@ -1,14 +1,3 @@
-#!/usr/bin/env python
-"""
-주기적 센서 데이터 분류 및 업로드 스크립트
-
-이 스크립트는 다음 기능을 수행합니다:
-1. 일정 간격으로 센서 데이터 로드 및 전처리
-2. 저장된 모델을 사용하여 센서 데이터 분류
-3. 분류 결과 및 센서 데이터를 API 서버에 업로드
-4. 설정된 간격으로 주기적으로 반복 실행
-"""
-
 import os
 import sys
 import time
@@ -21,6 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import torch
 from typing import Dict, List, Any, Optional, Tuple
+import glob
 
 # 프로젝트 루트 경로 추가
 project_root = Path(__file__).parent.absolute()
@@ -64,16 +54,16 @@ class SensorDataUploader:
         self.hidden_size = config.get('hidden_size', 64)
         self.num_layers = config.get('num_layers', 2)
         self.num_classes = config.get('num_classes', 4)
-        self.sequence_length = config.get('sequence_length', 50)
+        self.sequence_length = config.get('sequence_length', 100)
         self.window_size = config.get('window_size', 15)
         self.device = torch.device(config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu'))
         self.batch_size = config.get('batch_size', 1000)  # API 업로드 배치 크기
         
         # 주기 설정 (분 단위)
-        self.interval_minutes = config.get('interval_minutes', 30) 
+        self.interval_minutes = config.get('interval_minutes', 0.1) 
         
-        # 여러 센서 파일 접두사 지정 (g1, g2, g3, g4, g5)
-        self.file_prefixes = config.get('file_prefixes', ['g1', 'g2', 'g3', 'g4', 'g5'])
+        # 파일 패턴 설정
+        self.file_patterns = config.get('file_patterns', ['g2_sensor*_blocks*.csv'])
         
         # 프로세서 초기화
         self.processor = SensorDataProcessor(
@@ -87,8 +77,8 @@ class SensorDataUploader:
         # 분류 결과 매핑
         self.class_names = config.get('class_names', ['normal', 'type1', 'type2', 'type3'])
         
-        # 마지막 처리 시간 기록
-        self.last_processed_times = {prefix: None for prefix in self.file_prefixes}
+        # 마지막 처리 시간 기록 (파일 패턴별로 관리)
+        self.last_processed_times = {pattern: None for pattern in self.file_patterns}
         
         logger.info("센서 데이터 분류 및 업로드 클래스 초기화 완료")
 
@@ -132,26 +122,55 @@ class SensorDataUploader:
             logger.error(f"모델 로드 실패: {str(e)}")
             return False
     
-    def process_sensor_data(self, file_prefix: str) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    def find_sensor_files(self, pattern: str) -> List[str]:
         """
-        센서 데이터 처리
+        패턴에 맞는 센서 파일 찾기
         
         Args:
-            file_prefix: 처리할 센서 파일 접두사 (g1, g2 등)
+            pattern: 파일 패턴 (glob 패턴)
+            
+        Returns:
+            List[str]: 찾은 파일 경로 목록
+        """
+        # 절대 경로로 변환
+        search_pattern = os.path.join(self.data_dir, pattern)
+        files = glob.glob(search_pattern)
+        
+        # 각 파일의 수정 시간을 기준으로 정렬 (최신 파일이 먼저)
+        files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+        
+        logger.info(f"패턴 '{pattern}'으로 {len(files)}개 파일 발견: {', '.join(os.path.basename(f) for f in files[:5])}" + 
+                   (f" 외 {len(files)-5}개" if len(files) > 5 else ""))
+        
+        return files
+    
+    def process_sensor_file(self, file_path: str) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        """
+        단일 센서 파일 처리
+        
+        Args:
+            file_path: 센서 파일 경로
             
         Returns:
             Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]: (학습, 검증, 테스트) 데이터 또는 실패 시 None
         """
         try:
-            # 센서 파일 로드 및 보간
-            logger.info(f"{file_prefix} 센서 데이터 로드 및 보간 중...")
-            interpolated_data = self.processor.load_and_interpolate_sensor_data(
-                self.data_dir, prefix=file_prefix
-            )
+            file_name = os.path.basename(file_path)
+            logger.info(f"센서 파일 '{file_name}' 처리 중...")
             
-            if not interpolated_data:
-                logger.error(f"{file_prefix} 센서 데이터를 로드할 수 없습니다.")
+            # CSV 파일 로드
+            df = pd.read_csv(file_path, names=["time", "normal", "type1", "type2", "type3"], header=None)
+            
+            # 데이터 검증
+            if not all(col in df.columns for col in ["time", "normal", "type1", "type2", "type3"]):
+                logger.error(f"필요한 컬럼이 없습니다: {file_path}")
                 return None
+            
+            # 딕셔너리 형태로 데이터 변환 (SensorDataProcessor와 호환되도록)
+            sensor_id = self._extract_sensor_id(file_name)  # 파일 이름에서 센서 ID 추출
+            interpolated_data = {
+                f'sensor{sensor_id}': df
+            }
             
             # 데이터 결합 및 전처리
             logger.info("센서 데이터 결합 및 전처리 중...")
@@ -171,6 +190,26 @@ class SensorDataUploader:
         except Exception as e:
             logger.error(f"데이터 처리 중 오류 발생: {str(e)}")
             return None
+    
+    def _extract_sensor_id(self, file_name: str) -> int:
+        """
+        파일 이름에서 센서 ID 추출
+        
+        Args:
+            file_name: 파일 이름 (예: g2_sensor1_blocks.csv)
+            
+        Returns:
+            int: 센서 ID (기본값 1)
+        """
+        try:
+            # g2_sensor1_blocks.csv 형식에서 '1' 추출
+            import re
+            match = re.search(r'sensor(\d+)_', file_name)
+            if match:
+                return int(match.group(1))
+            return 1  # 기본값
+        except:
+            return 1  # 오류 시 기본값
     
     def classify_sensor_data(self, sensor_data: np.ndarray) -> List[Dict[str, Any]]:
         """
@@ -247,7 +286,7 @@ class SensorDataUploader:
         API 업로드용으로 결과 형식 변환
         
         Args:
-            machine_name: 기계 이름 (g1, g2 등)
+            machine_name: 기계 이름 (파일 이름에서 추출)
             results: 분류 결과 목록
             
         Returns:
@@ -342,45 +381,64 @@ class SensorDataUploader:
         
         total_results = 0
         
-        # 각 센서 파일 처리
-        for file_prefix in self.file_prefixes:
-            logger.info(f"\n=== {file_prefix} 센서 데이터 처리 시작 ===")
+        # 각 파일 패턴 처리
+        for pattern in self.file_patterns:
+            logger.info(f"\n=== 패턴 '{pattern}' 파일 처리 시작 ===")
             
-            # 센서 데이터 처리
-            result = self.process_sensor_data(file_prefix)
-            if result is None:
-                logger.warning(f"{file_prefix} 센서 데이터 처리를 건너뜁니다.")
+            # 패턴에 맞는 파일 찾기
+            files = self.find_sensor_files(pattern)
+            
+            if not files:
+                logger.warning(f"패턴 '{pattern}'에 맞는 파일이 없습니다.")
                 continue
             
-            train_data, valid_data, test_data = result
-            
-            # 학습 데이터만 샘플링하여 사용 (전체 데이터를 다 올리면 너무 많을 수 있음)
-            # 추가: 매번 다른 샘플을 사용하기 위해 랜덤 시드 변경
-            np.random.seed(int(time.time()))
-            
-            if train_data.shape[0] > 1000:
-                sample_indices = np.random.choice(train_data.shape[0], 1000, replace=False)
-                sample_data = train_data[sample_indices]
-                logger.info(f"{file_prefix} 학습 데이터에서 1000개 샘플 추출: {sample_data.shape}")
-            else:
-                sample_data = train_data
-            
-            # 센서 데이터 분류
-            classification_results = self.classify_sensor_data(sample_data)
-            if not classification_results:
-                logger.warning(f"{file_prefix} 분류 결과가 없습니다.")
-                continue
-            
-            # API 전송 형식으로 변환
-            api_data = self.format_for_api(file_prefix, classification_results)
-            
-            # API 서버로 업로드
-            uploaded = self.upload_to_api(api_data)
-            total_results += uploaded
+            # 각 파일 처리 (최신 파일을 우선 처리)
+            for file_path in files[:5]:  # 최신 파일 5개만 처리
+                file_name = os.path.basename(file_path)
+                
+                logger.info(f"\n--- 파일 '{file_name}' 처리 중 ---")
+                
+                # 센서 데이터 처리
+                result = self.process_sensor_file(file_path)
+                if result is None:
+                    logger.warning(f"파일 '{file_name}' 처리에 실패했습니다.")
+                    continue
+                
+                train_data, valid_data, test_data = result
+                
+                # 학습 데이터만 샘플링하여 사용 (전체 데이터를 다 올리면 너무 많을 수 있음)
+                # 추가: 매번 다른 샘플을 사용하기 위해 랜덤 시드 변경
+                np.random.seed(int(time.time()))
+                
+                if train_data.shape[0] > 1000:
+                    sample_indices = np.random.choice(train_data.shape[0], 1000, replace=False)
+                    sample_data = train_data[sample_indices]
+                    logger.info(f"{file_name} 학습 데이터에서 1000개 샘플 추출: {sample_data.shape}")
+                else:
+                    sample_data = train_data
+                
+                # 센서 데이터 분류
+                classification_results = self.classify_sensor_data(sample_data)
+                if not classification_results:
+                    logger.warning(f"{file_name} 분류 결과가 없습니다.")
+                    continue
+                
+                # 파일 이름에서 기계 이름 추출 (g2_sensor1_blocks.csv -> g2_sensor1)
+                machine_name = os.path.splitext(file_name)[0]
+                if machine_name.endswith('_blocks'):
+                    machine_name = machine_name[:-7]  # '_blocks' 제거
+                
+                # API 전송 형식으로 변환
+                api_data = self.format_for_api(machine_name, classification_results)
+                
+                # API 서버로 업로드
+                uploaded = self.upload_to_api(api_data)
+                total_results += uploaded
+                
+                logger.info(f"{file_name} 처리 완료: {uploaded}개 결과 업로드")
             
             # 마지막 처리 시간 업데이트
-            self.last_processed_times[file_prefix] = datetime.now()
-            logger.info(f"{file_prefix} 처리 완료: {uploaded}개 결과 업로드")
+            self.last_processed_times[pattern] = datetime.now()
         
         # 최종 결과 출력
         final_count = self.check_total_count()
@@ -461,8 +519,8 @@ def main():
                       help='시퀀스 길이')
     parser.add_argument('--batch_size', type=int, default=1000,
                       help='API 업로드 배치 크기')
-    parser.add_argument('--file_prefixes', type=str, nargs='+', default=['g1', 'g2', 'g3', 'g4', 'g5'],
-                      help='처리할 센서 파일 접두사 목록')
+    parser.add_argument('--file_patterns', type=str, nargs='+', default=['g2_sensor*_blocks*.csv'],
+                      help='처리할 센서 파일 패턴 목록 (glob 패턴)')
     parser.add_argument('--interval_minutes', type=int, default=30,
                       help='처리 주기 (분 단위)')
     parser.add_argument('--max_cycles', type=int, default=-1,
