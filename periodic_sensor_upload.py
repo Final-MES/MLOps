@@ -69,8 +69,8 @@ class SensorDataUploader:
         self.device = torch.device(config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu'))
         self.batch_size = config.get('batch_size', 1000)  # API 업로드 배치 크기
         
-        # 주기 설정 (분 단위)
-        self.interval_minutes = config.get('interval_minutes', 30) 
+        # 주기 설정 (초 단위)
+        self.interval_minutes = config.get('interval_minutes', 60) 
         
         # 여러 센서 파일 접두사 지정 (g1, g2, g3, g4, g5)
         self.file_prefixes = config.get('file_prefixes', ['g1', 'g2'])
@@ -229,33 +229,29 @@ class SensorDataUploader:
             interval: 분류 간격 (초 단위), 기본값 1.0초
             
         Returns:
-            List[Dict[str, Any]]: 분류 결과 목록
+            List[Dict[str, Any]]: API 형식 분류 결과 목록
         """
         if self.model is None:
             logger.error("모델이 로드되지 않았습니다.")
             return []
         
-        window_size = self.sequence_length  # 기존 sequence_length 사용
+        window_size = self.sequence_length
         
         if len(sensor_data) < window_size:
             logger.error(f"데이터 길이({len(sensor_data)})가 윈도우 크기({window_size})보다 작습니다.")
             return []
         
-        num_features = sensor_data.shape[1] if len(sensor_data.shape) > 1 else 1
-        logger.info(f"센서 데이터 형태: 샘플 수={len(sensor_data)}, 특성 수={num_features}")
-        
-        # 분류 결과 목록
-        classification_results = []
+        # API 형식 결과 목록 (바로 API 형식으로 생성)
+        api_results = []
         
         try:
             # 윈도우 수 계산 (스텝 크기 1로 고정)
-            step = 1
+            step = 200
             num_windows = (len(sensor_data) - window_size) // step + 1
             logger.info(f"처리할 윈도우 수: {num_windows} (간격: {interval}초)")
             
-            # 각 윈도우 처리
             for i in range(0, num_windows):
-                start_time = time.time()  # 현재 윈도우 처리 시작 시간
+                start_time = time.time()
                 
                 # 현재 윈도우 추출
                 start_idx = i * step
@@ -278,65 +274,51 @@ class SensorDataUploader:
                 # 클래스명 매핑
                 predicted_label = self.class_names[pred_class] if pred_class < len(self.class_names) else f"unknown_{pred_class}"
                 
-                # 결과 저장
-                result = {
-                    "sequence_data": window.tolist(),  # 시퀀스 데이터 저장
-                    "predicted_class": int(pred_class),  # 예측 클래스 (정수)
-                    "predicted_label": predicted_label,  # 예측 클래스명
-                    "confidence": float(conf_value),  # 신뢰도
-                    "window_index": i,
-                    "window_range": (start_idx, end_idx),
-                    "timestamp": datetime.now().isoformat()  # 타임스탬프
+                # API 형식으로 바로 결과 생성
+                api_result = {
+                    "predicted_class": int(pred_class),
+                    "predicted_label": predicted_label,
+                    "confidence": float(conf_value),
+                    "timestamp": datetime.now().isoformat()
                 }
-                classification_results.append(result)
+                api_results.append(api_result)
                 
-                # 다음 윈도우 처리 전에 일정 시간 대기 (1초에 한 번 처리)
+                # 다음 윈도우 처리 전에 일정 시간 대기
                 elapsed = time.time() - start_time
                 if elapsed < interval:
-                    time.sleep(interval - elapsed)  # 처리 시간을 빼고 남은 시간만큼 대기
+                    time.sleep(interval - elapsed)
                 else:
                     logger.warning(f"처리 시간이 간격보다 깁니다: {elapsed:.4f}초 > {interval}초")
             
-            logger.info(f"분류 완료: 총 {len(classification_results)}개 윈도우 처리됨")
-            return classification_results
+            logger.info(f"분류 완료: 총 {len(api_results)}개 윈도우 처리됨")
+            return api_results
         
-        except KeyboardInterrupt:
-            logger.info(f"사용자에 의해 중단되었습니다. {len(classification_results)}개 윈도우 처리됨")
-            return classification_results
         except Exception as e:
             logger.error(f"분류 중 오류 발생: {str(e)}")
             return []
-    
-    def format_for_api(self, machine_name: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+    def format_for_api(self, machine_name: str, classification_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         API 업로드용으로 결과 형식 변환
         
         Args:
             machine_name: 기계 이름 (g1, g2 등)
-            results: 분류 결과 목록
+            classification_results: 분류 결과 목록
             
         Returns:
             List[Dict[str, Any]]: API 형식 데이터
         """
         api_data = []
         
-        for result in results:
+        for result in classification_results:
             # fault_type 변환: 0=normal, 1,2,3=고장 유형
             fault_type = 0 if result["predicted_class"] == 0 else result["predicted_class"]
-            
-            # 원시 시퀀스 데이터를 JSON 문자열로 변환
-            sequence_data_json = json.dumps({
-                "sequence": result["sequence_data"],
-                "confidence": result["confidence"],
-                "actual_class": result["actual_class"]
-            })
             
             # API 형식으로 변환
             api_data.append({
                 "machine_name": machine_name,
                 "detected_at": result["timestamp"],
-                "fault_type": fault_type,
-                "sensor_data": sequence_data_json  # 센서 데이터를 추가 필드로 전송
+                "fault_type": fault_type
             })
         
         return api_data
@@ -471,7 +453,7 @@ class SensorDataUploader:
             logger.error("모델 로드 실패로 종료합니다.")
             return
         
-        logger.info(f"주기적 실행 시작: 간격 {self.interval_minutes}분, 최대 주기 {max_cycles if max_cycles > 0 else '무한'}")
+        logger.info(f"주기적 실행 시작: 간격 {self.interval_minutes}초, 최대 주기 {max_cycles if max_cycles > 0 else '무한'}")
         
         try:
             cycle_count = 0
@@ -493,12 +475,12 @@ class SensorDataUploader:
                 cycle_end_time = time.time()
                 cycle_duration = cycle_end_time - cycle_start_time
                 
-                wait_time = (self.interval_minutes * 60) - cycle_duration
+                wait_time = (self.interval_minutes) - cycle_duration
                 if wait_time > 0:
                     logger.info(f"다음 주기까지 {wait_time:.1f}초 대기 중...")
                     time.sleep(wait_time)
                 else:
-                    logger.warning(f"주기 처리에 {cycle_duration:.1f}초 소요, 간격({self.interval_minutes * 60}초)보다 길어 즉시 다음 주기 시작")
+                    logger.warning(f"주기 처리에 {cycle_duration:.1f}초 소요, 간격({wait_time}초)보다 길어 즉시 다음 주기 시작")
                 
         except KeyboardInterrupt:
             logger.info("\n사용자에 의해 중단되었습니다.")
@@ -525,7 +507,7 @@ def main():
                       help='API 업로드 배치 크기')
     parser.add_argument('--file_prefixes', type=str, nargs='+', default=['g1', 'g2'],
                       help='처리할 센서 파일 접두사 목록')
-    parser.add_argument('--interval_minutes', type=int, default=30,
+    parser.add_argument('--interval_minutes', type=int, default=60,
                       help='처리 주기 (분 단위)')
     parser.add_argument('--max_cycles', type=int, default=-1,
                       help='최대 실행 주기 수 (-1은 무한 반복)')
