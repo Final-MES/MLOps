@@ -551,14 +551,14 @@ class SensorCLI(BaseCLI):
         try:
             # 테스트 데이터 준비
             print("\n[1/4] 테스트 데이터 준비 중...")
-            X_test, y_test = prepare_sequence_data(test_data, sequence_length=self.state['model_params']['sequence_length'])
+            X_test, y_test = prepare_sequence_data(test_data, sequence_length=self.model_params['sequence_length'])
             print(f"테스트 데이터 준비 완료: {X_test.shape}, 레이블: {y_test.shape}")
         
         # 테스트 데이터 로더 준비
             print("\n[2/4] 테스트 데이터 로더 준비 중...")
             test_loader, _ = prepare_dataloaders(
                 X_test, y_test, X_test[:1], y_test[:1], self.state['device'],
-                batch_size=self.state['training_params']['batch_size']
+                batch_size= self.training_params['batch_size']
             )
         
             # 모델 평가
@@ -672,7 +672,7 @@ class SensorCLI(BaseCLI):
                 # 모델 정보 파일이 없으면 새로 생성
                 model_info = self.state['model'].get_model_info()
                 model_info.update({
-                    "sequence_length": self.state['model_params']['sequence_length'],
+                    "sequence_length": self.model_params['sequence_length'],
                     "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
                 })
                 with open(model_info_dst, 'w') as f:
@@ -685,7 +685,7 @@ class SensorCLI(BaseCLI):
                 "file_prefix": self.state['preprocessing_params']['file_prefix'],
                 "interp_step": self.state['preprocessing_params']['interp_step'],
                 "window_size": self.state['preprocessing_params']['window_size'],
-                "sequence_length": self.state['model_params']['sequence_length']
+                "sequence_length": self.model_params['sequence_length']
             }
             preprocess_config_path = os.path.join(deploy_subdir, 'preprocess_config.json')
             with open(preprocess_config_path, 'w') as f:
@@ -770,7 +770,7 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
 - 입력 크기: {self.state['model'].get_model_info()['input_size']}
 - 은닉층 크기: {self.state['model'].get_model_info()['hidden_size']}
 - LSTM 레이어 수: {self.state['model'].get_model_info()['num_layers']}
-- 시퀀스 길이: {self.state['model_params']['sequence_length']}
+- 시퀀스 길이: {self.model_params['sequence_length']}
 """
         
             # README 저장
@@ -951,15 +951,15 @@ python inference.py --data 당신의_데이터.csv --model {model_filename} --mo
 
             # 모델 구성 정보 입력
             input_size = BaseCLI.get_numeric_input("입력 특성 수", 4, min_val=1)
-            hidden_size = BaseCLI.get_numeric_input("은닉층 크기", self.state['model_params']['hidden_size'], min_val=8)
-            num_layers = BaseCLI.get_numeric_input("LSTM 레이어 수", self.state['model_params']['num_layers'], min_val=1, max_val=5)
+            hidden_size = BaseCLI.get_numeric_input("은닉층 크기", self.model_params['hidden_size'], min_val=8)
+            num_layers = BaseCLI.get_numeric_input("LSTM 레이어 수", self.model_params['num_layers'], min_val=1, max_val=5)
             num_classes =BaseCLI.get_numeric_input("출력 클래스 수", 4, min_val=2)
-            sequence_length = BaseCLI.get_numeric_input("시퀀스 길이", self.state['model_params']['sequence_length'], min_val=5)
+            sequence_length = BaseCLI.get_numeric_input("시퀀스 길이", self.model_params['sequence_length'], min_val=5)
 
             # 모델 파라미터 업데이트
-            self.state['model_params']['hidden_size'] = hidden_size
-            self.state['model_params']['num_layers'] = num_layers
-            self.state['model_params']['sequence_length'] = sequence_length
+            self.model_params['hidden_size'] = hidden_size
+            self.model_params['num_layers'] = num_layers
+            self.model_params['sequence_length'] = sequence_length
         
             model_info = {
                 'input_size': input_size,

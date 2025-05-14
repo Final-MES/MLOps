@@ -34,15 +34,15 @@ def main():
         from src.cli.sensor_cli import SensorCLI
         cli = SensorCLI()  # 인스턴스 생성
         cli.run()  # 인스턴스 메서드 호출
-    elif choice == "2":
-        from src.cli.image_cli import main as image_main
-        image_main()
-    elif choice == "3":
-        from src.cli.text_cli import main as text_main
-        text_main()
-    elif choice == "4":
-        from src.cli.db_export_cli import main as db_export_main
-        db_export_main()
+    #elif choice == "2":
+    #    from src.cli.image_cli import main as image_main
+    #    image_main()
+    #elif choice == "3":
+    #    from src.cli.text_cli import main as text_main
+    #    text_main()
+    #elif choice == "4":
+    #    from src.cli.db_export_cli import main as db_export_main
+    #    db_export_main()
     elif choice == "5":
         from src.cli.block_csv_cli import main as block_csv_main
         block_csv_main()
